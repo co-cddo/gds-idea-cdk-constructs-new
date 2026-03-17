@@ -81,41 +81,45 @@ app_config = AppConfig.from_pyproject("pyproject.toml")
 
 ## Environment-Specific Values
 
-Environment-specific configuration is fetched from AWS Secrets Manager at synth
-time. Each account maps to a secret via the naming convention
-`/gds-idea/{environment}/config`.
+Environment-specific configuration is fetched from AWS Systems Manager Parameter
+Store at synth time. Three parameters are fetched and merged into a single config:
 
-### Required Secret Keys
+### Parameter Structure
 
-The secret must be a JSON object with these keys:
+| Parameter | Key | Attribute |
+|-----------|-----|-----------|
+| `/gds-idea-auth` | `domain_name` | `domain_name` |
+| `/gds-idea-auth` | `cognito_user_pool_id` | `user_pool_id` |
+| `/gds-idea-auth` | `waf_arn` | `waf_arn` |
+| `/gds-idea-auth` | `waf_big_upload_arn` | `waf_big_upload_arn` |
+| `/gds-idea-auth` | `logs_bucket_name` | `log_bucket_name` |
+| `/gds-idea-ecs` | `ecs_arn` | `cluster_name` (parsed from ARN) |
+| `/gds-idea-vpc` | `vpc_id` | `vpc_id` |
 
-- **domain_name** — Parent domain (e.g. `example.com`)
-- **vpc_id** — Existing VPC ID
-- **cluster_name** — Existing ECS cluster name
-- **user_pool_id** — Existing Cognito User Pool ID
-- **external_idp_name** — External identity provider name in Cognito
-- **waf_arn** — WAF WebACL ARN
+The `external_idp_name` attribute is hard-coded to `"internal-access"` to match
+the identity provider configured in the Cognito User Pool.
 
 ### Environments
 
-| Environment | Account | Secret Path |
-|-------------|---------|-------------|
-| Development | `992382722318` | `/gds-idea/development/config` |
-| Production | `588077357019` | `/gds-idea/production/config` |
+| Environment | Account |
+|-------------|---------|
+| Development | `992382722318` |
+| Production | `588077357019` |
 
 **Region**: `eu-west-2` (preferred for both)
 
 ### Alternative Construction
 
-For testing or local development without Secrets Manager access:
+For testing or local development without Parameter Store access:
 
 ```python
 config = DeploymentConfig.from_dict(cdk_env, {
     "domain_name": "example.com",
     "vpc_id": "vpc-abc123",
-    "cluster_name": "my-cluster",
-    "user_pool_id": "eu-west-2_PoolId",
-    "external_idp_name": "my-idp",
+    "ecs_arn": "arn:aws:ecs:eu-west-2:123456789012:cluster/my-cluster",
+    "cognito_user_pool_id": "eu-west-2_PoolId",
     "waf_arn": "arn:aws:wafv2:...",
+    "waf_big_upload_arn": "arn:aws:wafv2:...",
+    "logs_bucket_name": "example.com-logs",
 })
 ```

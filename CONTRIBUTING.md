@@ -235,10 +235,11 @@ def test_deployment_config_from_dict(test_cdk_env):
     config = DeploymentConfig.from_dict(test_cdk_env, {
         "domain_name": "test.example.com",
         "vpc_id": "vpc-test123",
-        "cluster_name": "test-cluster",
-        "user_pool_id": "eu-west-2_TestPool",
-        "external_idp_name": "test-idp",
+        "ecs_arn": "arn:aws:ecs:eu-west-2:123456789012:cluster/test-cluster",
+        "cognito_user_pool_id": "eu-west-2_TestPool",
         "waf_arn": "arn:aws:wafv2:eu-west-2:123456789012:regional/webacl/test/id",
+        "waf_big_upload_arn": "arn:aws:wafv2:eu-west-2:123456789012:regional/webacl/test-upload/id",
+        "logs_bucket_name": "test.example.com-logs",
     })
     assert config.environment.friendly_name == "testing"
 ```
