@@ -6,16 +6,24 @@ from aws_cdk import Environment as CdkEnvironment
 from gds_idea_cdk_constructs.config import AppConfig, DeploymentConfig
 
 # Test config values — intentionally fake to prove code doesn't depend on real infra
+# Keys mirror the merged SSM parameter store structure (auth + ecs + vpc).
 TEST_CONFIG = {
+    # /gds-idea-auth
     "domain_name": "test.example.com",
-    "vpc_id": "vpc-test123",
-    "cluster_name": "test-cluster",
-    "user_pool_id": "eu-west-2_TestPool",
-    "external_idp_name": "test-idp",
+    "cognito_user_pool_id": "eu-west-2_TestPool",
     "waf_arn": (
         "arn:aws:wafv2:eu-west-2:123456789012:"
         "regional/webacl/test-waf/00000000-0000-0000-0000-000000000000"
     ),
+    "waf_big_upload_arn": (
+        "arn:aws:wafv2:eu-west-2:123456789012:"
+        "regional/webacl/test-waf-upload/00000000-0000-0000-0000-000000000000"
+    ),
+    "logs_bucket_name": "test.example.com-logs",
+    # /gds-idea-ecs
+    "ecs_arn": "arn:aws:ecs:eu-west-2:123456789012:cluster/test-cluster",
+    # /gds-idea-vpc
+    "vpc_id": "vpc-test123",
 }
 
 

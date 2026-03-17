@@ -230,34 +230,26 @@ web_app.task_role.add_to_policy(...)
 
 The library automatically configures resources based on your active AWS account.
 Environment-specific values (VPC, domain, Cognito user pool, WAF, etc.) are
-fetched from AWS Secrets Manager at synth time using the naming convention:
+fetched from AWS Systems Manager Parameter Store at synth time. Three parameters
+are fetched and merged:
 
-```
-/gds-idea/{environment}/config
-```
+- `/gds-idea-auth` — domain, Cognito, WAF config
+- `/gds-idea-ecs` — ECS cluster config
+- `/gds-idea-vpc` — VPC and subnet config
 
-### Secrets Manager Setup
-
-Each AWS account must have a secret containing the environment config as JSON:
-
-```bash
-aws secretsmanager create-secret \
-  --name "/gds-idea/development/config" \
-  --secret-string '{"domain_name":"...","vpc_id":"...","cluster_name":"...","user_pool_id":"...","external_idp_name":"...","waf_arn":"..."}'
-```
+These parameters are managed by Terraform and shared within each AWS account.
+You do not need to create them manually.
 
 ### Development Environment
 
 Account ID: `992382722318`
 
-- Secret: `/gds-idea/development/config`
 - Developers can assume task roles for local testing
 
 ### Production Environment
 
 Account ID: `588077357019`
 
-- Secret: `/gds-idea/production/config`
 - Stricter security policies
 - No developer assume role access
 

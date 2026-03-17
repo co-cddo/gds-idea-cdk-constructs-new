@@ -79,17 +79,18 @@ def test_deployment_config_from_dict_creates_config(test_cdk_env):
     assert config.environment == DeploymentEnvironment.TESTING
     assert config.domain_name == TEST_CONFIG["domain_name"]
     assert config.vpc_id == TEST_CONFIG["vpc_id"]
-    assert config.cluster_name == TEST_CONFIG["cluster_name"]
-    assert config.user_pool_id == TEST_CONFIG["user_pool_id"]
-    assert config.external_idp_name == TEST_CONFIG["external_idp_name"]
+    assert config.cluster_name == "test-cluster"
+    assert config.user_pool_id == TEST_CONFIG["cognito_user_pool_id"]
+    assert config.external_idp_name == DeploymentConfig.EXTERNAL_IDP_NAME
     assert config.waf_arn == TEST_CONFIG["waf_arn"]
+    assert config.waf_big_upload_arn == TEST_CONFIG["waf_big_upload_arn"]
 
 
 def test_deployment_config_from_dict_derived_fields(test_cdk_env):
     """Test that from_dict computes derived fields correctly."""
     config = DeploymentConfig.from_dict(test_cdk_env, TEST_CONFIG)
 
-    assert config.log_bucket_name == f"{config.domain_name}-logs"
+    assert config.log_bucket_name == TEST_CONFIG["logs_bucket_name"]
     assert config.redirect_unauthorised_url == f"{config.domain_name}/401.html"
 
 
@@ -112,7 +113,7 @@ def test_deployment_config_from_dict_with_prod_env(prod_cdk_env):
     assert config.environment == DeploymentEnvironment.PRODUCTION
 
 
-# DeploymentConfig.__init__ (Secrets Manager) tests
+# DeploymentConfig.__init__ (Parameter Store) tests
 
 
 def test_deployment_config_init_testing_env_raises_error(test_cdk_env):
@@ -121,21 +122,44 @@ def test_deployment_config_init_testing_env_raises_error(test_cdk_env):
         DeploymentConfig(test_cdk_env)
 
 
-def test_deployment_config_init_fetches_from_secrets_manager(dev_cdk_env):
-    """Test that __init__ fetches config from Secrets Manager."""
+def test_deployment_config_init_fetches_from_parameter_store(dev_cdk_env):
+    """Test that __init__ fetches config from all three SSM parameters."""
+    param_values = {
+        DeploymentConfig.PARAM_AUTH: json.dumps(
+            {
+                "domain_name": TEST_CONFIG["domain_name"],
+                "cognito_user_pool_id": TEST_CONFIG["cognito_user_pool_id"],
+                "waf_arn": TEST_CONFIG["waf_arn"],
+                "waf_big_upload_arn": TEST_CONFIG["waf_big_upload_arn"],
+                "logs_bucket_name": TEST_CONFIG["logs_bucket_name"],
+            }
+        ),
+        DeploymentConfig.PARAM_ECS: json.dumps(
+            {
+                "ecs_arn": TEST_CONFIG["ecs_arn"],
+            }
+        ),
+        DeploymentConfig.PARAM_VPC: json.dumps(
+            {
+                "vpc_id": TEST_CONFIG["vpc_id"],
+            }
+        ),
+    }
+
     mock_client = MagicMock()
-    mock_client.get_secret_value.return_value = {
-        "SecretString": json.dumps(TEST_CONFIG)
+    mock_client.get_parameter.side_effect = lambda **kwargs: {
+        "Parameter": {"Value": param_values[kwargs["Name"]]}
     }
 
     with patch("gds_idea_cdk_constructs.config.boto3") as mock_boto3:
         mock_boto3.client.return_value = mock_client
         config = DeploymentConfig(dev_cdk_env)
 
-    mock_boto3.client.assert_called_once_with("secretsmanager", region_name="eu-west-2")
-    mock_client.get_secret_value.assert_called_once_with(
-        SecretId="/gds-idea/development/config"
-    )
+    mock_boto3.client.assert_called_once_with("ssm", region_name="eu-west-2")
+    assert mock_client.get_parameter.call_count == 3
+    mock_client.get_parameter.assert_any_call(Name=DeploymentConfig.PARAM_AUTH)
+    mock_client.get_parameter.assert_any_call(Name=DeploymentConfig.PARAM_ECS)
+    mock_client.get_parameter.assert_any_call(Name=DeploymentConfig.PARAM_VPC)
     assert config.domain_name == TEST_CONFIG["domain_name"]
     assert config.vpc_id == TEST_CONFIG["vpc_id"]
 

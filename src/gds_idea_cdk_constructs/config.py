@@ -45,44 +45,49 @@ class DeploymentEnvironment(Enum):
 class DeploymentConfig:
     """Configuration for GDS Idea web applications.
 
-    Fetches environment-specific configuration from AWS Secrets Manager
-    using a naming convention of ``/gds-idea/{environment}/config``.
+    Fetches environment-specific configuration from AWS Systems Manager
+    Parameter Store, merging three parameters: ``/gds-idea-auth``,
+    ``/gds-idea-ecs``, and ``/gds-idea-vpc``.
 
-    For testing or local development without Secrets Manager access, use
+    For testing or local development without Parameter Store access, use
     the :meth:`from_dict` classmethod instead.
     """
 
-    SECRET_PREFIX = "/gds-idea"
+    PARAM_AUTH = "/gds-idea-auth"
+    PARAM_ECS = "/gds-idea-ecs"
+    PARAM_VPC = "/gds-idea-vpc"
+    EXTERNAL_IDP_NAME = "internal-access"
     REQUIRED_KEYS = frozenset(
         {
             "domain_name",
             "vpc_id",
-            "cluster_name",
-            "user_pool_id",
-            "external_idp_name",
+            "ecs_arn",
+            "cognito_user_pool_id",
             "waf_arn",
+            "waf_big_upload_arn",
+            "logs_bucket_name",
         }
     )
 
     def __init__(self, cdk_env: CdkEnvironment):
-        """Create DeploymentConfig by fetching from Secrets Manager.
+        """Create DeploymentConfig by fetching from Parameter Store.
 
         Args:
             cdk_env: The CDK Environment (must have account and region set).
 
         Raises:
             ValueError: If the account is unknown, the environment is TESTING,
-                or the secret is missing required keys.
+                or the parameters are missing required keys.
         """
         self._init_common(cdk_env)
 
         if self.environment == DeploymentEnvironment.TESTING:
             raise ValueError(
-                "TESTING environment cannot fetch from Secrets Manager. "
+                "TESTING environment cannot fetch from Parameter Store. "
                 "Use DeploymentConfig.from_dict() instead."
             )
 
-        config = self._fetch_from_secrets_manager()
+        config = self._fetch_from_parameter_store()
         self._apply_config(config)
 
     @classmethod
@@ -91,7 +96,7 @@ class DeploymentConfig:
     ) -> "DeploymentConfig":
         """Create DeploymentConfig from an explicit config dict.
 
-        Useful for testing or local development without Secrets Manager access.
+        Useful for testing or local development without Parameter Store access.
 
         Args:
             cdk_env: The CDK Environment (must have account set).
@@ -144,31 +149,37 @@ class DeploymentConfig:
 
         self.domain_name = config["domain_name"]
         self.vpc_id = config["vpc_id"]
-        self.cluster_name = config["cluster_name"]
-        self.user_pool_id = config["user_pool_id"]
-        self.external_idp_name = config["external_idp_name"]
+        self.cluster_name = config["ecs_arn"].split("/")[-1]
+        self.user_pool_id = config["cognito_user_pool_id"]
+        self.external_idp_name = self.EXTERNAL_IDP_NAME
         self.waf_arn = config["waf_arn"]
+        self.waf_big_upload_arn = config["waf_big_upload_arn"]
+        self.log_bucket_name = config["logs_bucket_name"]
 
         # Derived from domain_name
-        self.log_bucket_name = f"{self.domain_name}-logs"
         self.redirect_unauthorised_url = f"{self.domain_name}/401.html"
 
-    def _fetch_from_secrets_manager(self) -> dict[str, str]:
-        """Fetch configuration from AWS Secrets Manager.
+    def _fetch_from_parameter_store(self) -> dict[str, str]:
+        """Fetch configuration from AWS Systems Manager Parameter Store.
+
+        Fetches and merges three parameters: ``/gds-idea-auth``,
+        ``/gds-idea-ecs``, and ``/gds-idea-vpc``.
 
         Returns:
-            Parsed config dict from the secret.
+            Merged config dict from all three parameters.
 
         Raises:
-            botocore.exceptions.ClientError: If the secret cannot be retrieved.
+            botocore.exceptions.ClientError: If a parameter cannot be retrieved.
         """
-        secret_name = f"{self.SECRET_PREFIX}/{self.environment.friendly_name}/config"
         region = self.cdk_env.region or "eu-west-2"
 
-        logger.info(f"Fetching config from Secrets Manager: {secret_name}")
-        client = boto3.client("secretsmanager", region_name=region)
-        response = client.get_secret_value(SecretId=secret_name)
-        return json.loads(response["SecretString"])
+        logger.info("Fetching config from Parameter Store")
+        client = boto3.client("ssm", region_name=region)
+        result = {}
+        for name in (self.PARAM_AUTH, self.PARAM_ECS, self.PARAM_VPC):
+            response = client.get_parameter(Name=name)
+            result.update(json.loads(response["Parameter"]["Value"]))
+        return result
 
 
 class AppConfig:
