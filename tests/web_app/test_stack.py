@@ -178,7 +178,7 @@ def test_web_app_stack_cognito_auth_creates_user_pool_client(webapp_cognito):
     template.has_resource_properties(
         "AWS::Cognito::UserPoolClient",
         {
-            "UserPoolId": TEST_CONFIG["user_pool_id"],
+            "UserPoolId": TEST_CONFIG["cognito_user_pool_id"],
             "GenerateSecret": True,
         },
     )
