@@ -1,6 +1,6 @@
 [project]
 name = "gds-idea-cdk-constructs"
-version = "0.3.0"
+version = "0.3.1"
 description = "A repo for commonly used constructs in the team."
 readme = "README.md"
 authors = [
@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "aws-cdk-lib>=2.180.0",
+    "aws-cdk-lib>=2.243.0",
     "boto3>=1.35.0",
 ]
 
