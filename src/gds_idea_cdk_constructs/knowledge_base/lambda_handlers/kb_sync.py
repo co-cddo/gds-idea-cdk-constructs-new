@@ -1,4 +1,4 @@
-"""SQS-triggered Lambda handler for Bedrock Knowledge Base sync.
+"""SQS-triggered Lambda handler for Bedrock Knowledge Base sync
 
 Invoked by an SQS queue that receives S3 event notifications.  The queue
 is configured with a batching window (default 20 minutes) so that many
