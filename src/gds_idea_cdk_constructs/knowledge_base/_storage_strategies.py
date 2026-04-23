@@ -1,4 +1,4 @@
-"""Storage strategy pattern for knowledge base vector backends.
+"""Storage strategy pattern for knowledge base vector backends
 
 This module defines the ``IStorageStrategy`` ABC and concrete implementations
 for each supported :class:`~.props.StorageType`.  The stack selects a strategy
