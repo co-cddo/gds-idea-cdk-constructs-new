@@ -66,7 +66,17 @@ class AgentCore(Stack):
         )
 
         # --- Permissions ---
-        model_arn = f"arn:aws:bedrock:{self.region}::foundation-model/{props.model_id}"
+        # Cross-region model IDs (us., eu., ap.) are inference profiles;
+        # plain IDs (anthropic.claude-...) are foundation models.
+        if props.model_id.split(".")[0] in ("us", "eu", "ap"):
+            model_arn = (
+                f"arn:aws:bedrock:{self.region}:{self.account}"
+                f":inference-profile/{props.model_id}"
+            )
+        else:
+            model_arn = (
+                f"arn:aws:bedrock:{self.region}::foundation-model/{props.model_id}"
+            )
         runtime.role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
