@@ -153,7 +153,7 @@ class KnowledgeBase(Stack):
         self._create_outputs()
 
     # ------------------------------------------------------------------
-    # Grant Knowledge Base Retrieval Permissions
+    # Cross-Stack integration
     # ------------------------------------------------------------------
 
     def grant_retrieve(self, grantee: iam.IGrantable) -> None:
@@ -188,6 +188,27 @@ class KnowledgeBase(Stack):
             )
         )
         self.ssm_parameter.grant_read(grantee)
+
+    @property
+    def environment_variables(self) -> dict[str, str]:
+        """Environment variables for container using the knowledge base.
+        Returns a dict suitable for passing into
+        WebAppContainerProperties environment_variables:
+        - ``KB_ID``: The Knowledge Base ID (CloudFormation token).
+        - ``KB_SSM_PARAMETER``: The SSM parameter name storing the KB ID.
+        Example:
+            ::
+                container_props = WebAppContainerProperties(
+                    environment_variables={
+                        **kb.environment_variables,
+                        "MY_OTHER_VAR": "value",
+                    },
+                )
+        """
+        return {
+            "KB_ID": self.kb_id,
+            "KB_SSM_PARAMETER": self.ssm_parameter.parameter_name,
+        }
 
     # ------------------------------------------------------------------
     # Private construction methods
