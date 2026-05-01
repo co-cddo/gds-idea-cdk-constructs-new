@@ -34,7 +34,13 @@ from constructs import Construct
 
 from ..config import AppConfig, DeploymentConfig
 from ._storage_strategies import STORAGE_STRATEGY_MAP, IStorageStrategy
-from .props import ChunkingStrategy, KnowledgeBaseProps
+from .props import (
+    ChunkingStrategy,
+    FixedSizeChunkingConfig,
+    HierarchicalChunkingConfig,
+    KnowledgeBaseProps,
+    SemanticChunkingConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +66,9 @@ class KnowledgeBase(Stack):
 
             from gds_idea_cdk_constructs import DeploymentConfig
             from gds_idea_cdk_constructs.knowledge_base import (
+                ChunkingConfig,
                 KnowledgeBase,
                 KnowledgeBaseProps,
-                ChunkingStrategy,
             )
 
             config = DeploymentConfig(cdk_env)
@@ -71,8 +77,7 @@ class KnowledgeBase(Stack):
                 deployment_config=config,
                 app_config="my-app",
                 kb_props=KnowledgeBaseProps(
-                    chunking_strategy=ChunkingStrategy.FIXED_SIZE,
-                    chunk_max_tokens=500,
+                    chunking=ChunkingConfig.fixed_size(max_tokens=500),
                     inclusion_prefixes=["documents/"],
                 ),
             )
@@ -84,7 +89,7 @@ class KnowledgeBase(Stack):
                 deployment_config=config,
                 app_config=app_config,
                 container_props=WebAppContainerProperties(
-                    environment_variables={"KB_ID": kb.kb_id},
+                    environment_variables=kb.environment_variables,
                 ),
             )
 
@@ -353,46 +358,51 @@ class KnowledgeBase(Stack):
             A ``VectorIngestionConfigurationProperty`` with the appropriate
             chunking settings.
         """
-        strategy = self.kb_props.chunking_strategy
+        chunking = self.kb_props.chunking
+        strategy = chunking.strategy
 
         if strategy == ChunkingStrategy.NONE:
             chunking_config = bedrock.CfnDataSource.ChunkingConfigurationProperty(
                 chunking_strategy="NONE",
             )
-        elif strategy == ChunkingStrategy.FIXED_SIZE:
+        elif strategy == ChunkingStrategy.FIXED_SIZE and isinstance(
+            chunking, FixedSizeChunkingConfig
+        ):
             chunking_config = bedrock.CfnDataSource.ChunkingConfigurationProperty(
                 chunking_strategy="FIXED_SIZE",
                 fixed_size_chunking_configuration=bedrock.CfnDataSource.FixedSizeChunkingConfigurationProperty(
-                    max_tokens=self.kb_props.chunk_max_tokens,
-                    overlap_percentage=self.kb_props.chunk_overlap_percentage,
+                    max_tokens=chunking.max_tokens,
+                    overlap_percentage=chunking.overlap_percentage,
                 ),
             )
-        elif strategy == ChunkingStrategy.HIERARCHICAL:
+        elif strategy == ChunkingStrategy.HIERARCHICAL and isinstance(
+            chunking, HierarchicalChunkingConfig
+        ):
             chunking_config = bedrock.CfnDataSource.ChunkingConfigurationProperty(
                 chunking_strategy="HIERARCHICAL",
                 hierarchical_chunking_configuration=bedrock.CfnDataSource.HierarchicalChunkingConfigurationProperty(
                     level_configurations=[
                         bedrock.CfnDataSource.HierarchicalChunkingLevelConfigurationProperty(
-                            max_tokens=self.kb_props.chunk_max_tokens * 5,
+                            max_tokens=chunking.max_tokens * 5,
                         ),
                         bedrock.CfnDataSource.HierarchicalChunkingLevelConfigurationProperty(
-                            max_tokens=self.kb_props.chunk_max_tokens,
+                            max_tokens=chunking.max_tokens,
                         ),
                     ],
                     overlap_tokens=int(
-                        self.kb_props.chunk_max_tokens
-                        * self.kb_props.chunk_overlap_percentage
-                        / 100
+                        chunking.max_tokens * chunking.overlap_percentage / 100
                     ),
                 ),
             )
-        elif strategy == ChunkingStrategy.SEMANTIC:
+        elif strategy == ChunkingStrategy.SEMANTIC and isinstance(
+            chunking, SemanticChunkingConfig
+        ):
             chunking_config = bedrock.CfnDataSource.ChunkingConfigurationProperty(
                 chunking_strategy="SEMANTIC",
                 semantic_chunking_configuration=bedrock.CfnDataSource.SemanticChunkingConfigurationProperty(
-                    max_tokens=self.kb_props.chunk_max_tokens,
-                    buffer_size=0,
-                    breakpoint_percentile_threshold=95,
+                    max_tokens=chunking.max_tokens,
+                    buffer_size=chunking.buffer_size,
+                    breakpoint_percentile_threshold=chunking.breakpoint_percentile_threshold,
                 ),
             )
         else:

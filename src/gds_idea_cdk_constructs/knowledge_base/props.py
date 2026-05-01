@@ -1,5 +1,7 @@
 """Configuration properties and enums for the KnowledgeBase construct."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -62,6 +64,152 @@ EMBEDDING_MODEL_DEFAULTS: dict[EmbeddingModel, int] = {
 }
 
 
+# -- Chunking configuration --
+
+
+@dataclass
+class ChunkingConfig:
+    """Base chunking configuration.
+
+    Use the static factory methods to create the appropriate variant:
+
+    - :meth:`none` — no chunking (default)
+    - :meth:`fixed_size` — fixed-size token chunks with overlap
+    - :meth:`hierarchical` — two-level parent/child chunks
+    - :meth:`semantic` — split on semantic boundaries
+
+    Example:
+        ::
+
+            ChunkingConfig.none()
+            ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=15)
+            ChunkingConfig.semantic(max_tokens=400)
+    """
+
+    strategy: ChunkingStrategy
+
+    @staticmethod
+    def none() -> ChunkingConfig:
+        """Create a no-chunking configuration.
+
+        Each source file is embedded as a single document.  Best for
+        short, atomic documents (e.g., individual profiles).
+        """
+        return ChunkingConfig(strategy=ChunkingStrategy.NONE)
+
+    @staticmethod
+    def fixed_size(
+        max_tokens: int = 300,
+        overlap_percentage: int = 20,
+    ) -> FixedSizeChunkingConfig:
+        """Create a fixed-size chunking configuration.
+
+        Args:
+            max_tokens: Maximum tokens per chunk.
+            overlap_percentage: Percentage overlap between consecutive
+                chunks (0–100).
+        """
+        return FixedSizeChunkingConfig(
+            strategy=ChunkingStrategy.FIXED_SIZE,
+            max_tokens=max_tokens,
+            overlap_percentage=overlap_percentage,
+        )
+
+    @staticmethod
+    def hierarchical(
+        max_tokens: int = 300,
+        overlap_percentage: int = 20,
+    ) -> HierarchicalChunkingConfig:
+        """Create a hierarchical (two-level) chunking configuration.
+
+        Parent chunks are ``max_tokens * 5`` tokens; child chunks are
+        ``max_tokens`` tokens.  Overlap is computed as
+        ``max_tokens * overlap_percentage / 100`` tokens.
+
+        Args:
+            max_tokens: Maximum tokens per child chunk.
+            overlap_percentage: Percentage of ``max_tokens`` used as
+                overlap between chunks (0–100).
+        """
+        return HierarchicalChunkingConfig(
+            strategy=ChunkingStrategy.HIERARCHICAL,
+            max_tokens=max_tokens,
+            overlap_percentage=overlap_percentage,
+        )
+
+    @staticmethod
+    def semantic(
+        max_tokens: int = 300,
+        buffer_size: int = 0,
+        breakpoint_percentile_threshold: int = 95,
+    ) -> SemanticChunkingConfig:
+        """Create a semantic chunking configuration.
+
+        Splits documents on semantic boundaries (e.g., paragraphs,
+        topic shifts).
+
+        Args:
+            max_tokens: Maximum tokens per chunk.
+            buffer_size: Number of surrounding sentences to include
+                for context when evaluating breakpoints.
+            breakpoint_percentile_threshold: Percentile threshold
+                (0–100) for detecting semantic breakpoints.
+        """
+        return SemanticChunkingConfig(
+            strategy=ChunkingStrategy.SEMANTIC,
+            max_tokens=max_tokens,
+            buffer_size=buffer_size,
+            breakpoint_percentile_threshold=breakpoint_percentile_threshold,
+        )
+
+
+@dataclass
+class FixedSizeChunkingConfig(ChunkingConfig):
+    """Fixed-size chunking configuration.
+
+    Attributes:
+        max_tokens: Maximum tokens per chunk.
+        overlap_percentage: Percentage overlap between consecutive chunks.
+    """
+
+    max_tokens: int = 300
+    overlap_percentage: int = 20
+
+
+@dataclass
+class HierarchicalChunkingConfig(ChunkingConfig):
+    """Hierarchical (two-level) chunking configuration.
+
+    Attributes:
+        max_tokens: Maximum tokens per child chunk.
+            Parent chunks use ``max_tokens * 5``.
+        overlap_percentage: Percentage of ``max_tokens`` used as
+            overlap between chunks.
+    """
+
+    max_tokens: int = 300
+    overlap_percentage: int = 20
+
+
+@dataclass
+class SemanticChunkingConfig(ChunkingConfig):
+    """Semantic chunking configuration.
+
+    Attributes:
+        max_tokens: Maximum tokens per chunk.
+        buffer_size: Number of surrounding sentences for context.
+        breakpoint_percentile_threshold: Percentile threshold for
+            detecting semantic breakpoints.
+    """
+
+    max_tokens: int = 300
+    buffer_size: int = 0
+    breakpoint_percentile_threshold: int = 95
+
+
+# -- Main props --
+
+
 @dataclass
 class KnowledgeBaseProps:
     """Configuration properties for the KnowledgeBase stack.
@@ -77,9 +225,10 @@ class KnowledgeBaseProps:
         Fixed-size chunking with auto-sync::
 
             props = KnowledgeBaseProps(
-                chunking_strategy=ChunkingStrategy.FIXED_SIZE,
-                chunk_max_tokens=500,
-                chunk_overlap_percentage=15,
+                chunking=ChunkingConfig.fixed_size(
+                    max_tokens=500,
+                    overlap_percentage=15,
+                ),
                 inclusion_prefixes=["documents/"],
                 enable_auto_sync=True,
             )
@@ -101,14 +250,8 @@ class KnowledgeBaseProps:
     """Distance metric for the vector index (cosine, euclidean, dotproduct)."""
 
     # -- Chunking --
-    chunking_strategy: ChunkingStrategy = ChunkingStrategy.NONE
+    chunking: ChunkingConfig = field(default_factory=ChunkingConfig.none)
     """How source documents are split before embedding."""
-
-    chunk_max_tokens: int = 300
-    """Maximum tokens per chunk (used with ``FIXED_SIZE``)."""
-
-    chunk_overlap_percentage: int = 20
-    """Percentage overlap between consecutive chunks (used with ``FIXED_SIZE``)."""
 
     # -- Data source --
     inclusion_prefixes: list[str] = field(default_factory=list)

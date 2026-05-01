@@ -6,7 +6,7 @@ from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.config import AppConfig, DeploymentConfig
 from gds_idea_cdk_constructs.knowledge_base.props import (
-    ChunkingStrategy,
+    ChunkingConfig,
     EmbeddingModel,
     KnowledgeBaseProps,
 )
@@ -69,9 +69,10 @@ def kb_fixed_chunking(cdk_app, deployment_config, app_config):
         deployment_config=deployment_config,
         app_config=app_config,
         kb_props=KnowledgeBaseProps(
-            chunking_strategy=ChunkingStrategy.FIXED_SIZE,
-            chunk_max_tokens=500,
-            chunk_overlap_percentage=15,
+            chunking=ChunkingConfig.fixed_size(
+                max_tokens=500,
+                overlap_percentage=15,
+            ),
         ),
     )
 
@@ -316,9 +317,10 @@ def test_kb_stack_hierarchical_chunking(cdk_app, deployment_config, app_config):
         deployment_config=deployment_config,
         app_config=app_config,
         kb_props=KnowledgeBaseProps(
-            chunking_strategy=ChunkingStrategy.HIERARCHICAL,
-            chunk_max_tokens=300,
-            chunk_overlap_percentage=20,
+            chunking=ChunkingConfig.hierarchical(
+                max_tokens=300,
+                overlap_percentage=20,
+            ),
         ),
     )
     template = Template.from_stack(kb)
@@ -349,8 +351,7 @@ def test_kb_stack_semantic_chunking(cdk_app, deployment_config, app_config):
         deployment_config=deployment_config,
         app_config=app_config,
         kb_props=KnowledgeBaseProps(
-            chunking_strategy=ChunkingStrategy.SEMANTIC,
-            chunk_max_tokens=400,
+            chunking=ChunkingConfig.semantic(max_tokens=400),
         ),
     )
     template = Template.from_stack(kb)
@@ -605,6 +606,22 @@ def test_kb_stack_exposes_ssm_parameter(kb_default):
 def test_kb_stack_exposes_data_source_id(kb_default):
     """Test that the stack exposes the data source ID."""
     assert kb_default.data_source_id is not None
+
+
+# -- environment_variables property tests --
+
+
+def test_environment_variables_contains_expected_keys(kb_default):
+    """Test that environment_variables returns the expected keys."""
+    env_vars = kb_default.environment_variables
+    assert set(env_vars.keys()) == {"KB_ID", "KB_SSM_PARAMETER"}
+
+
+def test_environment_variables_values_match_attributes(kb_default):
+    """Test that environment_variables values match the stack attributes."""
+    env_vars = kb_default.environment_variables
+    assert env_vars["KB_ID"] == kb_default.kb_id
+    assert env_vars["KB_SSM_PARAMETER"] == kb_default.ssm_parameter.parameter_name
 
 
 # -- Error handling --

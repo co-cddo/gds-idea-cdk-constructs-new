@@ -1,12 +1,16 @@
-"""Unit tests for KnowledgeBaseProps and enums."""
+"""Unit tests for KnowledgeBaseProps, ChunkingConfig, and enums."""
 
 import pytest
 
 from gds_idea_cdk_constructs.knowledge_base.props import (
     EMBEDDING_MODEL_DEFAULTS,
+    ChunkingConfig,
     ChunkingStrategy,
     EmbeddingModel,
+    FixedSizeChunkingConfig,
+    HierarchicalChunkingConfig,
     KnowledgeBaseProps,
+    SemanticChunkingConfig,
     StorageType,
 )
 
@@ -41,6 +45,74 @@ def test_embedding_model_defaults_cover_all_models():
         assert model in EMBEDDING_MODEL_DEFAULTS
 
 
+# -- ChunkingConfig factory tests --
+
+
+def test_chunking_config_none():
+    """Test that ChunkingConfig.none() creates a NONE strategy config."""
+    config = ChunkingConfig.none()
+    assert config.strategy == ChunkingStrategy.NONE
+    assert isinstance(config, ChunkingConfig)
+    assert not isinstance(config, FixedSizeChunkingConfig)
+
+
+def test_chunking_config_fixed_size_defaults():
+    """Test that ChunkingConfig.fixed_size() has sensible defaults."""
+    config = ChunkingConfig.fixed_size()
+    assert config.strategy == ChunkingStrategy.FIXED_SIZE
+    assert isinstance(config, FixedSizeChunkingConfig)
+    assert config.max_tokens == 300
+    assert config.overlap_percentage == 20
+
+
+def test_chunking_config_fixed_size_custom():
+    """Test that ChunkingConfig.fixed_size() accepts custom values."""
+    config = ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=15)
+    assert isinstance(config, FixedSizeChunkingConfig)
+    assert config.max_tokens == 500
+    assert config.overlap_percentage == 15
+
+
+def test_chunking_config_hierarchical_defaults():
+    """Test that ChunkingConfig.hierarchical() has sensible defaults."""
+    config = ChunkingConfig.hierarchical()
+    assert config.strategy == ChunkingStrategy.HIERARCHICAL
+    assert isinstance(config, HierarchicalChunkingConfig)
+    assert config.max_tokens == 300
+    assert config.overlap_percentage == 20
+
+
+def test_chunking_config_hierarchical_custom():
+    """Test that ChunkingConfig.hierarchical() accepts custom values."""
+    config = ChunkingConfig.hierarchical(max_tokens=400, overlap_percentage=10)
+    assert isinstance(config, HierarchicalChunkingConfig)
+    assert config.max_tokens == 400
+    assert config.overlap_percentage == 10
+
+
+def test_chunking_config_semantic_defaults():
+    """Test that ChunkingConfig.semantic() has sensible defaults."""
+    config = ChunkingConfig.semantic()
+    assert config.strategy == ChunkingStrategy.SEMANTIC
+    assert isinstance(config, SemanticChunkingConfig)
+    assert config.max_tokens == 300
+    assert config.buffer_size == 0
+    assert config.breakpoint_percentile_threshold == 95
+
+
+def test_chunking_config_semantic_custom():
+    """Test that ChunkingConfig.semantic() accepts custom values."""
+    config = ChunkingConfig.semantic(
+        max_tokens=400,
+        buffer_size=2,
+        breakpoint_percentile_threshold=90,
+    )
+    assert isinstance(config, SemanticChunkingConfig)
+    assert config.max_tokens == 400
+    assert config.buffer_size == 2
+    assert config.breakpoint_percentile_threshold == 90
+
+
 # -- KnowledgeBaseProps defaults --
 
 
@@ -52,9 +124,7 @@ def test_knowledge_base_props_defaults():
     assert props.embedding_model == EmbeddingModel.TITAN_V2
     assert props.embedding_dimensions is None
     assert props.distance_metric == "cosine"
-    assert props.chunking_strategy == ChunkingStrategy.NONE
-    assert props.chunk_max_tokens == 300
-    assert props.chunk_overlap_percentage == 20
+    assert props.chunking.strategy == ChunkingStrategy.NONE
     assert props.inclusion_prefixes == []
     assert props.data_deletion_policy == "DELETE"
     assert props.enable_auto_sync is True
@@ -70,9 +140,7 @@ def test_knowledge_base_props_custom_values():
         embedding_model=EmbeddingModel.COHERE_ENGLISH_V3,
         embedding_dimensions=512,
         distance_metric="euclidean",
-        chunking_strategy=ChunkingStrategy.FIXED_SIZE,
-        chunk_max_tokens=500,
-        chunk_overlap_percentage=15,
+        chunking=ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=15),
         inclusion_prefixes=["docs/", "reports/"],
         data_deletion_policy="RETAIN",
         enable_auto_sync=False,
@@ -84,9 +152,10 @@ def test_knowledge_base_props_custom_values():
     assert props.embedding_model == EmbeddingModel.COHERE_ENGLISH_V3
     assert props.embedding_dimensions == 512
     assert props.distance_metric == "euclidean"
-    assert props.chunking_strategy == ChunkingStrategy.FIXED_SIZE
-    assert props.chunk_max_tokens == 500
-    assert props.chunk_overlap_percentage == 15
+    assert props.chunking.strategy == ChunkingStrategy.FIXED_SIZE
+    assert isinstance(props.chunking, FixedSizeChunkingConfig)
+    assert props.chunking.max_tokens == 500
+    assert props.chunking.overlap_percentage == 15
     assert props.inclusion_prefixes == ["docs/", "reports/"]
     assert props.data_deletion_policy == "RETAIN"
     assert props.enable_auto_sync is False
@@ -103,6 +172,14 @@ def test_knowledge_base_props_mutable_default_isolation():
     props_a.inclusion_prefixes.append("data/")
 
     assert props_b.inclusion_prefixes == []
+
+
+def test_knowledge_base_props_chunking_default_isolation():
+    """Test that chunking default is not shared across instances."""
+    props_a = KnowledgeBaseProps()
+    props_b = KnowledgeBaseProps()
+
+    assert props_a.chunking is not props_b.chunking
 
 
 # -- resolved_embedding_dimensions --
