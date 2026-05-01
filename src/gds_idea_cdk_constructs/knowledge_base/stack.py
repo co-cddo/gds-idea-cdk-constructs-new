@@ -87,6 +87,9 @@ class KnowledgeBase(Stack):
                     environment_variables={"KB_ID": kb.kb_id},
                 ),
             )
+
+            # Grant the ECS task role permission to query the KB
+            kb.grant_retrieve(webapp.task_role)
     """
 
     def __init__(
@@ -148,6 +151,43 @@ class KnowledgeBase(Stack):
             self._setup_auto_sync(app_prefix, env_name)
 
         self._create_outputs()
+
+    # ------------------------------------------------------------------
+    # Grant Knowledge Base Retrieval Permissions
+    # ------------------------------------------------------------------
+
+    def grant_retrieve(self, grantee: iam.IGrantable) -> None:
+        """Grant permissions to retrieve from this knowledge base.
+
+        Grants the grantee:
+
+        - ``bedrock:Retrieve`` on the Knowledge Base ARN
+        - Read access to the SSM parameter storing the KB ID
+
+        For ``RetrieveAndGenerate`` or ``InvokeModel`` permissions, the
+        user should add those separately since they depend on which
+        LLM models the application uses.
+
+        Args:
+            grantee: The IAM principal to grant permissions to (e.g. a
+                task role from a :class:`~gds_idea_cdk_constructs.web_app.WebApp`
+                stack).
+
+        Example:
+            ::
+
+                kb = KnowledgeBase(app, deployment_config=config, app_config="my-app")
+                webapp = WebApp(app, deployment_config=config, app_config=app_config)
+                kb.grant_retrieve(webapp.task_role)
+        """
+        grantee.grant_principal.add_to_principal_policy(
+            iam.PolicyStatement(
+                sid="BedrockRetrieve",
+                actions=["bedrock:Retrieve"],
+                resources=[self.kb_arn],
+            )
+        )
+        self.ssm_parameter.grant_read(grantee)
 
     # ------------------------------------------------------------------
     # Private construction methods
