@@ -1,7 +1,7 @@
 """Unit tests for the KnowledgeBase stack."""
 
 import pytest
-from aws_cdk import App, Environment as CdkEnvironment
+from aws_cdk import App, Environment as CdkEnvironment, Stack, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.config import AppConfig, DeploymentConfig
@@ -651,4 +651,47 @@ def test_kb_stack_has_expected_outputs(kb_default):
     template.has_output(
         "SsmParameterName",
         {"Description": "SSM parameter storing the KB ID"},
+    )
+
+
+# -- grant_retrieve tests --
+
+
+def _make_consumer_role(kb_stack):
+    """Create an IAM role in a separate stack with matching env."""
+    consumer_stack = Stack(
+        kb_stack.node.scope,
+        "ConsumerStack",
+        env=CdkEnvironment(account="testing", region="eu-west-2"),
+    )
+    return consumer_stack, iam.Role(
+        consumer_stack,
+        "ConsumerRole",
+        assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+    )
+
+
+def test_grant_retrieve_adds_bedrock_retrieve_permission(kb_no_sync):
+    """Test that grant_retrieve grants bedrock:Retrieve on the KB ARN."""
+    consumer_stack, role = _make_consumer_role(kb_no_sync)
+
+    kb_no_sync.grant_retrieve(role)
+
+    template = Template.from_stack(consumer_stack)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": "bedrock:Retrieve",
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
     )
