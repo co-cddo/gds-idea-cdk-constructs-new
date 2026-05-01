@@ -159,6 +159,17 @@ class DeploymentConfig:
         # Derived from domain_name
         self.redirect_unauthorised_url = f"{self.domain_name}/401.html"
 
+        # Cross-account role for non-prod environments to access production data.
+        # Hardcoded for now — swap to config["cross_account_role_arn"] when
+        # the value is available from Parameter Store.
+        if self.environment == DeploymentEnvironment.PRODUCTION:
+            self.cross_account_role_arn: str | None = None
+        else:
+            self.cross_account_role_arn = (
+                f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
+                ":role/assume_role_for_development_account"
+            )
+
     def _fetch_from_parameter_store(self) -> dict[str, str]:
         """Fetch configuration from AWS Systems Manager Parameter Store.
 

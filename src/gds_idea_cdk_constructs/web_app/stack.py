@@ -45,6 +45,7 @@ class WebApp(Stack):
         container_props: WebAppContainerProperties | None = None,
         task_role: iam.Role | None = None,
         disable_waf: bool = False,
+        cross_account_access: bool = False,
     ) -> None:
         """Initialize a WebApp stack with containerized application infrastructure.
 
@@ -76,6 +77,11 @@ class WebApp(Stack):
                 for short-term debugging when WAF rules are blocking legitimate traffic.
                 Never use in production. Disabling WAF removes critical security
                 protections against common web exploits.**
+            cross_account_access: Enable cross-account access to production resources.
+                Defaults to False. When True and deploying to a non-production
+                environment, grants the task role sts:AssumeRole permission on
+                the cross-account role and injects CROSS_ACCOUNT_ROLE_ARN as a
+                container environment variable.
 
         Example:
             Basic usage with Cognito authentication::
@@ -140,6 +146,11 @@ class WebApp(Stack):
         if self.deployment_config.environment == DeploymentEnvironment.DEVELOPMENT:
             self._add_assume_policy_for_dev()
 
+        # Cross-account access to production resources from non-prod environments
+        self._cross_account_env: dict[str, str] = {}
+        if cross_account_access:
+            self._setup_cross_account_access()
+
         logger.info(
             f"Creating web app: {self.app_name} with authentication: {authentication}"
         )
@@ -185,6 +196,22 @@ class WebApp(Stack):
             "Dev container access enabled: (*-poweraccess, *-admin) "
             "can assume TaskRole for local development"
         )
+
+    def _setup_cross_account_access(self) -> None:
+        """Grant the task role permission to assume the cross-account role
+        and inject the role ARN as a container environment variable."""
+        role_arn = self.deployment_config.cross_account_role_arn
+        if role_arn is None:
+            return
+
+        self.task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["sts:AssumeRole"],
+                resources=[role_arn],
+            )
+        )
+        self._cross_account_env = {"CROSS_ACCOUNT_ROLE_ARN": role_arn}
+        logger.info(f"Cross-account access enabled: {role_arn}")
 
     def _import_existing_resources(self) -> None:
         """Import existing VPC and other shared resources."""
@@ -296,6 +323,7 @@ class WebApp(Stack):
             logging=ecs.LogDrivers.aws_logs(stream_prefix=f"{self.app_name}-app"),
             environment={
                 **self._auth_strategy.get_environment_variables(),
+                **self._cross_account_env,
                 **environment,
             },
         )

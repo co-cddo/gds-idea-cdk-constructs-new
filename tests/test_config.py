@@ -94,6 +94,20 @@ def test_deployment_config_from_dict_derived_fields(test_cdk_env):
     assert config.redirect_unauthorised_url == f"{config.domain_name}/401.html"
 
 
+def test_deployment_config_cross_account_role_arn_dev(dev_cdk_env):
+    """Test that cross_account_role_arn is set for non-prod environments."""
+    config = DeploymentConfig.from_dict(dev_cdk_env, TEST_CONFIG)
+    assert config.cross_account_role_arn is not None
+    assert "588077357019" in config.cross_account_role_arn
+    assert "assume_role_for_development_account" in config.cross_account_role_arn
+
+
+def test_deployment_config_cross_account_role_arn_prod(prod_cdk_env):
+    """Test that cross_account_role_arn is None in production."""
+    config = DeploymentConfig.from_dict(prod_cdk_env, TEST_CONFIG)
+    assert config.cross_account_role_arn is None
+
+
 def test_deployment_config_from_dict_missing_key_raises_error(test_cdk_env):
     """Test that from_dict raises ValueError when required keys are missing."""
     incomplete = {"domain_name": "test.example.com"}

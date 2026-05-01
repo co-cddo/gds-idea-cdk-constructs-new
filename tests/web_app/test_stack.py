@@ -581,3 +581,98 @@ def test_web_app_stack_invalid_authentication_raises_error(
             docker_context_path="tests/fixtures",
             dockerfile_path="Dockerfile",
         )
+
+
+# Cross-account access tests
+
+
+def test_web_app_stack_cross_account_access_in_dev(
+    dev_cdk_app, dev_deployment_config, app_config
+):
+    """Test that cross_account_access=True adds IAM policy and env var in dev."""
+    stack = WebApp(
+        dev_cdk_app,
+        dev_deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        cross_account_access=True,
+    )
+    template = Template.from_stack(stack)
+
+    # Task role should have sts:AssumeRole policy
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": "sts:AssumeRole",
+                                "Effect": "Allow",
+                                "Resource": Match.string_like_regexp(
+                                    r".*assume_role_for_development_account"
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+    # Container should have CROSS_ACCOUNT_ROLE_ARN env var
+    template.has_resource_properties(
+        "AWS::ECS::TaskDefinition",
+        {
+            "ContainerDefinitions": Match.array_with(
+                [
+                    Match.object_like(
+                        {
+                            "Environment": Match.array_with(
+                                [
+                                    {
+                                        "Name": "CROSS_ACCOUNT_ROLE_ARN",
+                                        "Value": Match.string_like_regexp(
+                                            r".*assume_role_for_development_account"
+                                        ),
+                                    }
+                                ]
+                            )
+                        }
+                    )
+                ]
+            )
+        },
+    )
+
+
+def test_web_app_stack_cross_account_access_disabled_by_default(
+    cdk_app, deployment_config, app_config
+):
+    """Test that cross_account_access defaults to False and adds nothing."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+    )
+    template = Template.from_stack(stack)
+
+    # Should have no IAM policy with sts:AssumeRole for cross-account role
+    # (the only policies should be for logging, not sts:AssumeRole)
+    policies = template.find_resources("AWS::IAM::Policy")
+    for _policy_id, policy in policies.items():
+        statements = (
+            policy.get("Properties", {})
+            .get("PolicyDocument", {})
+            .get("Statement", [])
+        )
+        for stmt in statements:
+            if stmt.get("Action") == "sts:AssumeRole":
+                resource = stmt.get("Resource", "")
+                assert "assume_role_for_development_account" not in str(resource)
