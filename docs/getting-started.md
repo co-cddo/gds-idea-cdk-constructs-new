@@ -272,6 +272,50 @@ app_config = AppConfig(
 )
 ```
 
+### Cross-Account Data Access
+
+If your application needs to access data in the production account when deployed to
+the development environment (e.g., querying Athena or reading S3), enable
+cross-account access:
+
+```python
+WebApp(
+    app,
+    deployment_config=deployment_config,
+    app_config=app_config,
+    cross_account_access=True,  # Enable cross-account role assumption in dev
+    # ... other parameters
+)
+```
+
+When enabled and deploying to a non-production environment, the construct automatically:
+
+1. Grants the task role `sts:AssumeRole` permission on the cross-account role
+2. Injects `CROSS_ACCOUNT_ROLE_ARN` as a container environment variable
+
+Your application code can then use this environment variable to create a boto3 session
+that assumes the cross-account role:
+
+```python
+import os
+import boto3
+
+def get_session():
+    role_arn = os.getenv("CROSS_ACCOUNT_ROLE_ARN")
+    if role_arn:
+        sts = boto3.client("sts")
+        creds = sts.assume_role(RoleArn=role_arn, RoleSessionName="app")["Credentials"]
+        return boto3.Session(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
+    return boto3.Session()
+```
+
+In production, `CROSS_ACCOUNT_ROLE_ARN` is not set, so the default session (using the
+task role's direct permissions) is used. No code changes needed between environments.
+
 ## Next Steps
 
 - [API Reference](api/webapp.md) - Detailed API documentation

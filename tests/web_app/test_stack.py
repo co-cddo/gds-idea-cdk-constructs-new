@@ -668,9 +668,7 @@ def test_web_app_stack_cross_account_access_disabled_by_default(
     policies = template.find_resources("AWS::IAM::Policy")
     for _policy_id, policy in policies.items():
         statements = (
-            policy.get("Properties", {})
-            .get("PolicyDocument", {})
-            .get("Statement", [])
+            policy.get("Properties", {}).get("PolicyDocument", {}).get("Statement", [])
         )
         for stmt in statements:
             if stmt.get("Action") == "sts:AssumeRole":

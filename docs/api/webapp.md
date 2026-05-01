@@ -225,3 +225,30 @@ In the development environment, the task role can be assumed by developers with 
 
 
 This feature is **disabled** in production environments.
+
+### Cross-Account Access
+
+When `cross_account_access=True` is set, the construct enables the ECS task to assume
+a cross-account role for accessing production data resources from non-production
+environments.
+
+```python
+WebApp(
+    app,
+    deployment_config=deployment_config,
+    app_config=app_config,
+    cross_account_access=True,
+)
+```
+
+**What it does (non-production only):**
+
+- Grants `sts:AssumeRole` permission to the task role for the cross-account role
+- Injects `CROSS_ACCOUNT_ROLE_ARN` environment variable into the container
+
+**In production:** No action is taken regardless of the flag value — the task role
+should have direct access to resources via IAM policies.
+
+**App-side usage:** Applications should read `CROSS_ACCOUNT_ROLE_ARN` from the
+environment and assume the role when creating boto3 sessions. When the variable is
+not set (production), a default session with direct credentials is used instead.

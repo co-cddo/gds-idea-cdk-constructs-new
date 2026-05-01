@@ -1,6 +1,6 @@
 [project]
 name = "gds-idea-cdk-constructs"
-version = "0.4.0"
+version = "0.4.1"
 description = "A repo for commonly used constructs in the team."
 readme = "README.md"
 authors = [
