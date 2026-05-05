@@ -4,12 +4,13 @@ version = "0.4.2"
 description = "A repo for commonly used constructs in the team."
 readme = "README.md"
 authors = [
-    { name = "David Gillespie", email = "david.gillespie@digital.cabinet-office.gov.uk" }
+    { name = "David Gillespie", email = "david.gillespie@digital.cabinet-office.gov.uk" },
+    { name = "Jose Orjales", email = "jose.orjales@digital.cabinet-office.gov.uk" },
 ]
 requires-python = ">=3.11"
 dependencies = [
     "aws-cdk-aws-bedrock-agentcore-alpha>=2.251.0a0",
-    "aws-cdk-lib>=2.180.0",
+    "aws-cdk-lib>=2.243.0",
     "boto3>=1.35.0",
 ]
 
