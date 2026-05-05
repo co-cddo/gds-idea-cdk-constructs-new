@@ -161,7 +161,7 @@ class DeploymentConfig:
 
         # Cross-account role for non-prod environments to access production data.
         # Hardcoded for now — swap to config["cross_account_role_arn"] when
-        # the value is available from Parameter Store.
+        # the value is available from Parameter Store. See #11.
         if self.environment == DeploymentEnvironment.PRODUCTION:
             self.cross_account_role_arn: str | None = None
         else:

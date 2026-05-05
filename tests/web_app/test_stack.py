@@ -96,6 +96,25 @@ def dev_deployment_config():
 
 
 @pytest.fixture
+def prod_cdk_app():
+    """Fixture for CDK App using PROD environment."""
+    account_id = "588077357019"
+    region = "eu-west-2"
+    vpc_id = TEST_CONFIG["vpc_id"]
+    domain_name = TEST_CONFIG["domain_name"]
+
+    app = App(context=_build_cdk_context(account_id, region, vpc_id, domain_name))
+    return app
+
+
+@pytest.fixture
+def prod_deployment_config():
+    """Fixture for PROD DeploymentConfig using from_dict."""
+    prod_env = CdkEnvironment(account="588077357019", region="eu-west-2")
+    return DeploymentConfig.from_dict(prod_env, TEST_CONFIG)
+
+
+@pytest.fixture
 def webapp_no_auth(cdk_app, deployment_config, app_config):
     """Fixture for WebApp with NoAuth."""
     return WebApp(
@@ -665,6 +684,34 @@ def test_web_app_stack_cross_account_access_disabled_by_default(
 
     # Should have no IAM policy with sts:AssumeRole for cross-account role
     # (the only policies should be for logging, not sts:AssumeRole)
+    policies = template.find_resources("AWS::IAM::Policy")
+    for _policy_id, policy in policies.items():
+        statements = (
+            policy.get("Properties", {}).get("PolicyDocument", {}).get("Statement", [])
+        )
+        for stmt in statements:
+            if stmt.get("Action") == "sts:AssumeRole":
+                resource = stmt.get("Resource", "")
+                assert "assume_role_for_development_account" not in str(resource)
+
+
+def test_web_app_stack_cross_account_access_true_in_prod(
+    prod_cdk_app, prod_deployment_config, app_config
+):
+    """Test that cross_account_access=True in production adds no AssumeRole policy."""
+    stack = WebApp(
+        prod_cdk_app,
+        prod_deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        cross_account_access=True,
+    )
+    template = Template.from_stack(stack)
+
+    # Even with cross_account_access=True, production should have no
+    # sts:AssumeRole policy for the cross-account role
     policies = template.find_resources("AWS::IAM::Policy")
     for _policy_id, policy in policies.items():
         statements = (

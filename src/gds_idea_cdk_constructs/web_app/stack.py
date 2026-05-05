@@ -202,6 +202,10 @@ class WebApp(Stack):
         and inject the role ARN as a container environment variable."""
         role_arn = self.deployment_config.cross_account_role_arn
         if role_arn is None:
+            logger.info(
+                "Cross-account access enabled but no role configured "
+                "for this environment — skipping"
+            )
             return
 
         self.task_role.add_to_policy(
