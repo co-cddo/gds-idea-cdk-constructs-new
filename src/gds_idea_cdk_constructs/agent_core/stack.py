@@ -70,24 +70,33 @@ class AgentCore(Stack):
         )
 
         # --- Permissions ---
-        # Cross-region model IDs (us., eu., ap.) are inference profiles;
-        # plain IDs (anthropic.claude-...) are foundation models.
-        if props.model_id.split(".")[0] in ("us", "eu", "ap"):
-            model_arn = (
-                f"arn:aws:bedrock:{self.region}:{self.account}"
-                f":inference-profile/{props.model_id}"
-            )
+        # Cross-region inference profiles (us., eu., ap.) route to foundation
+        # models in other regions. IAM needs access to both the profile and
+        # the underlying foundation model (wildcard region).
+        prefix = props.model_id.split(".")[0]
+        if prefix in ("us", "eu", "ap"):
+            # The base model ID without the region prefix
+            base_model_id = props.model_id[len(prefix) + 1 :]
+            model_resources = [
+                # The inference profile in this region
+                (
+                    f"arn:aws:bedrock:{self.region}:{self.account}"
+                    f":inference-profile/{props.model_id}"
+                ),
+                # The foundation model in any region Bedrock may route to
+                f"arn:aws:bedrock:*::foundation-model/{base_model_id}",
+            ]
         else:
-            model_arn = (
+            model_resources = [
                 f"arn:aws:bedrock:{self.region}::foundation-model/{props.model_id}"
-            )
+            ]
         runtime.role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream",
                 ],
-                resources=[model_arn],
+                resources=model_resources,
             )
         )
 
