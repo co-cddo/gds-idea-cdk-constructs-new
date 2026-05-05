@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aws_cdk import RemovalPolicy
 from aws_cdk.aws_ecr_assets import Platform
 
 _DEFAULT_AGENT_CODE_DIR = str(Path(__file__).parent / "agent_template")
@@ -43,6 +44,12 @@ class AgentCoreProperties:
 
     If set, passed as a SYSTEM_PROMPT env var and takes priority over the
     default_system_prompt.md file in the agent code directory.
+    """
+
+    removal_policy: RemovalPolicy = RemovalPolicy.DESTROY
+    """Removal policy for stateful resources (e.g. Memory store).
+
+    DESTROY deletes the memory on stack deletion. Set to RETAIN to keep data.
     """
 
     environment_variables: dict[str, str] = field(default_factory=dict)

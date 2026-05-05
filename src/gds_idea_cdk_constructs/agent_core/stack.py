@@ -43,6 +43,7 @@ class AgentCore(Stack):
             memory_name=props.memory_name,
             description=props.memory_description,
         )
+        memory.apply_removal_policy(props.removal_policy)
 
         # The Runtime
         runtime = agentcore.Runtime(
