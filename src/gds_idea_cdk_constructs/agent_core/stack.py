@@ -43,7 +43,10 @@ class AgentCore(Stack):
             memory_name=props.memory_name,
             description=props.memory_description,
         )
-        memory.apply_removal_policy(props.removal_policy)
+        # Apply removal policy to the underlying CloudFormation resource
+        cfn_memory = memory.node.default_child
+        if cfn_memory:
+            cfn_memory.apply_removal_policy(props.removal_policy)
 
         # The Runtime
         runtime = agentcore.Runtime(
