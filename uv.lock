@@ -406,7 +406,7 @@ wheels = [
 
 [[package]]
 name = "gds-idea-cdk-constructs"
-version = "0.4.0"
+version = "0.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "aws-cdk-aws-bedrock-agentcore-alpha" },
