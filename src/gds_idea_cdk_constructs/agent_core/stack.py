@@ -86,6 +86,9 @@ class AgentCore(Stack):
             environment_variables=env_vars,
         )
 
+        # Need to make runtime role available for kb to take on and give permissions to
+        self.runtime_role = runtime.role
+
         # --- Permissions ---
         # Model access (only for BuiltInAgent)
         if model_id:
@@ -206,3 +209,4 @@ class AgentCore(Stack):
 
         # Show outputs
         CfnOutput(self, "RuntimeArn", value=runtime.agent_runtime_arn)
+        CfnOutput(self, "RuntimeRoleArn", value=runtime.role.role_arn)
