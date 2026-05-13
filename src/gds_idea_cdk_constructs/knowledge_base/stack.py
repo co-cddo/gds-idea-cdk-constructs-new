@@ -95,6 +95,22 @@ class KnowledgeBase(Stack):
 
             # Grant the ECS task role permission to query the KB
             kb.grant_retrieve(webapp.task_role)
+
+        With an AgentCore runtime (cross-stack)::
+
+            from gds_idea_cdk_constructs.agent_core import AgentCore, AgentCoreProperties
+
+            agent = AgentCore(
+                app,
+                "MyAgentStack",
+                props=AgentCoreProperties(
+                    runtime_name="my-agent",
+                    environment_variables=kb.environment_variables,
+                ),
+            )
+
+            # Grant the runtime permission to query the KB
+            kb.grant_retrieve(agent.runtime_role)
     """
 
     def __init__(
