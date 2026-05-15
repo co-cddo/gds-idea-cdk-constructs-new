@@ -37,11 +37,17 @@ class TestModelConfig:
         assert config.max_history == 10
 
     def test_budget_tokens_must_be_less_than_max_tokens(self):
-        with pytest.raises(ValueError, match="budget_tokens must be less than max_tokens"):
+        with pytest.raises(
+            ValueError, 
+            match="budget_tokens must be less than max_tokens"
+        ):
             ModelConfig(max_tokens=8000, budget_tokens=8000)
 
     def test_budget_tokens_greater_than_max_tokens_raises(self):
-        with pytest.raises(ValueError, match="budget_tokens must be less than max_tokens"):
+        with pytest.raises(
+            ValueError, 
+            match="budget_tokens must be less than max_tokens"
+        ):
             ModelConfig(max_tokens=4000, budget_tokens=5000)
 
     def test_to_envs(self):
@@ -148,7 +154,9 @@ class TestAgentCoreProperties:
         assert props.runtime_name == "my-agent"
         assert isinstance(props.agent, BuiltInAgent)
         assert isinstance(props.memory, MemoryConfig)
-        assert props.description == "An AgentCore Runtime deployed by the Agent Constructs Template"
+        assert props.description == (
+            "An AgentCore Runtime deployed by the Agent Constructs Template"
+        )
 
     def test_builtin_agent_mode(self):
         props = AgentCoreProperties(

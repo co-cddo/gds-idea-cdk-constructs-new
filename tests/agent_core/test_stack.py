@@ -127,7 +127,10 @@ class TestRuntimeCreation:
             "AWS::BedrockAgentCore::Runtime",
             {
                 "AgentRuntimeName": "test_agent",
-                "Description": "An AgentCore Runtime deployed by the Agent Constructs Template",
+                "Description": (
+                    "An AgentCore Runtime deployed by the Agent Constructs Template"
+                ),
+
             },
         )
 
@@ -290,7 +293,10 @@ class TestMemory:
 class TestModelPermissions:
     """Tests that model invoke permissions are granted correctly."""
 
-    def test_cross_region_model_gets_inference_profile_permission(self, builtin_default):
+    def test_cross_region_model_gets_inference_profile_permission(
+            self, 
+            builtin_default
+        ):
         """eu.* model should get inference-profile ARN + foundation-model wildcard."""
         template = Template.from_stack(builtin_default)
         template.has_resource_properties(
@@ -438,7 +444,9 @@ class TestObservabilityPermissions:
                             "Action": "cloudwatch:PutMetricData",
                             "Effect": "Allow",
                             "Condition": {
-                                "StringEquals": {"cloudwatch:namespace": "bedrock-agentcore"},
+                                "StringEquals": (
+                                    {"cloudwatch:namespace": "bedrock-agentcore"}
+                                ),
                             },
                         })
                     ])
@@ -466,7 +474,10 @@ class TestObservabilityPermissions:
             },
         )
 
-    def test_observability_permissions_present_for_custom_agent(self, custom_agent_no_memory):
+    def test_observability_permissions_present_for_custom_agent(
+            self, 
+            custom_agent_no_memory
+        ): 
         """Custom agents should also get logging/xray/metrics permissions."""
         template = Template.from_stack(custom_agent_no_memory)
         template.has_resource_properties(
