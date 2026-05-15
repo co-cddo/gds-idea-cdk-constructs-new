@@ -7,9 +7,9 @@ from aws_cdk import (
 from constructs import Construct
 
 from .props import (
+    _DEFAULT_AGENT_CODE_DIR,
     AgentCoreProperties,
     BuiltInAgent,
-    _DEFAULT_AGENT_CODE_DIR,
 )
 
 

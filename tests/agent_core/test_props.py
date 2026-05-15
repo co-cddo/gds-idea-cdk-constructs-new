@@ -10,7 +10,6 @@ from gds_idea_cdk_constructs.agent_core.props import (
     ModelConfig,
 )
 
-
 # -- ModelConfig tests --
 
 

@@ -13,7 +13,6 @@ from gds_idea_cdk_constructs.agent_core.props import (
 )
 from gds_idea_cdk_constructs.agent_core.stack import AgentCore
 
-
 # -- Fixtures --
 
 
