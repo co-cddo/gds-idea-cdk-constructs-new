@@ -482,7 +482,9 @@ class TestObservabilityPermissions:
                                     "Condition": {
                                         "StringEquals": (
                                             {
-                                                "cloudwatch:namespace": "bedrock-agentcore"
+                                                "cloudwatch:namespace": (
+                                                    "bedrock-agentcore"
+                                                )
                                             }
                                         ),
                                     },
