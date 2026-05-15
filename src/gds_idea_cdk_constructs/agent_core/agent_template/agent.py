@@ -6,10 +6,8 @@ from _logging import setup_logging
 logger = setup_logging()
 
 import json
-import os
 from collections.abc import AsyncGenerator
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 from bedrock_agentcore.memory import MemoryClient
@@ -19,28 +17,16 @@ from strands.models import BedrockModel
 
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
+from _config import Config
 
 # --- Configuration (injected via CDK environment variables) ---
-MEMORY_ID = os.getenv("MEMORY_ID")
-REGION = os.getenv("REGION")
-MODEL_ID = os.getenv("MODEL_ID")
-ACTOR_ID = "agent"
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", "20"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "20000"))
-BUDGET_TOKENS = int(os.getenv("BUDGET_TOKENS", "16000"))
-THINKING_ENABLED = os.getenv("THINKING_ENABLED", "true").lower() == "true"
-
-# --- System prompt (env var takes priority, then file fallback) ---
-_PROMPT_FILE = Path(__file__).parent / "default_system_prompt.md"
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT") or (
-    _PROMPT_FILE.read_text(encoding="utf-8") if _PROMPT_FILE.exists() else ""
-)
+config = Config.from_env()
 
 # --- Shared clients ---
 app = BedrockAgentCoreApp()
-memory_client = MemoryClient(region_name=REGION) if MEMORY_ID else None
+memory_client = MemoryClient(region_name=config.region) if config.memory_id else None
 
-logger.info("Agent initialising (Model=%s, Region=%s)", MODEL_ID, REGION)
+logger.info("Agent initialising (Model=%s, Region=%s)", config.model_id, config.region)
 
 
 # ==========================================================================
@@ -54,10 +40,10 @@ def get_session_history(session_id: str) -> list:
 
     try:
         events = memory_client.list_events(
-            memory_id=MEMORY_ID,
-            actor_id=ACTOR_ID,
+            memory_id=config.memory_id,
+            actor_id=config.actor_id,
             session_id=session_id,
-            max_results=MAX_HISTORY,
+            max_results=config.max_history,
             include_payload=True,
         )
         if not events:
@@ -116,8 +102,8 @@ def save_interaction(session_id: str, role: str, content: str) -> None:
 
     try:
         memory_client.create_blob_event(
-            memory_id=MEMORY_ID,
-            actor_id=ACTOR_ID,
+            memory_id=config.memory_id,
+            actor_id=config.actor_id,
             session_id=session_id,
             blob_data=json.dumps({"role": role, "content": content}),
         )
@@ -131,22 +117,22 @@ def save_interaction(session_id: str, role: str, content: str) -> None:
 
 def create_agent(history: list[dict]) -> Agent:
     """Create a Strands Agent with conversation history and thinking enabled."""
-    system_prompt = SYSTEM_PROMPT.replace(
+    system_prompt = config.system_prompt.replace(
         "{today}", date.today().isoformat()
     )
 
     additional_fields = {}
-    if THINKING_ENABLED:
+    if config.thinking_enabled:
         additional_fields["thinking"] = {
             "type": "enabled",
-            "budget_tokens": BUDGET_TOKENS,
+            "budget_tokens": config.budget_tokens,
         }
 
     return Agent(
         model=BedrockModel(
-            model_id=MODEL_ID,
-            region_name=REGION,
-            max_tokens=MAX_TOKENS,
+            model_id=config.model_id,
+            region_name=config.region,
+            max_tokens=config.max_tokens,
             additional_request_fields=additional_fields,
         ),
         system_prompt=system_prompt,
@@ -198,7 +184,7 @@ async def run_agent_turn(
                 result_obj = event["result"]
                 response_text = _extract_response_text(result_obj)
                 usage = extract_and_record_usage(
-                    result_obj, session_id, MODEL_ID
+                    result_obj, session_id, config.model_id
                 )
 
         # Persist the turn
@@ -246,5 +232,5 @@ async def invoke(payload):
 
 
 if __name__ == "__main__":
-    logger.info("Starting AgentCore (Model=%s, Region=%s)", MODEL_ID, REGION)
+    logger.info("Starting AgentCore (Model=%s, Region=%s)", config.model_id, config.region)
     app.run()

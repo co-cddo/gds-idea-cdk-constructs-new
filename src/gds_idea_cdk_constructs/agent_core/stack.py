@@ -6,7 +6,11 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from .props import AgentCoreProperties
+from .props import (
+    AgentCoreProperties,
+    BuiltInAgent,
+    _DEFAULT_AGENT_CODE_DIR,
+)
 
 
 class AgentCore(Stack):
@@ -30,79 +34,92 @@ class AgentCore(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # The Artifact
+        # --- Resolve agent mode ---
+        if isinstance(props.agent, BuiltInAgent):
+            code_dir = _DEFAULT_AGENT_CODE_DIR
+            env_vars = {
+                **props.agent.model.to_envs(),
+                "REGION": self.region,
+                "LOG_LEVEL": props.agent.log_level,
+                **(
+                    {"SYSTEM_PROMPT": props.agent.system_prompt}
+                    if props.agent.system_prompt
+                    else {}
+                ),
+            }
+            model_id = props.agent.model.model_id
+        else:  # CustomAgent
+            code_dir = props.agent.agent_code_directory
+            env_vars = {
+                "MODEL_ID": props.agent.model_id,
+                "REGION": self.region,
+                **props.agent.environment_variables,
+            }
+            model_id = props.agent.model_id
+
+        # --- Memory (optional) ---
+        memory = None
+        if props.memory:
+            memory = agentcore.Memory(
+                self,
+                "AgentMemory",
+                memory_name=props.memory.name,
+                description=props.memory.description,
+            )
+            cfn_memory = memory.node.default_child
+            if cfn_memory:
+                cfn_memory.apply_removal_policy(props.removal_policy)
+            env_vars["MEMORY_ID"] = memory.memory_id
+
+        # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
-            directory=props.agent_code_directory,
+            directory=code_dir,
             platform=props.platform,
         )
 
-        # --- The Short Term Memory ---
-        memory = agentcore.Memory(
-            self,
-            "AgentMemory",
-            memory_name=props.memory_name,
-            description=props.memory_description,
-        )
-        # Apply removal policy to the underlying CloudFormation resource
-        cfn_memory = memory.node.default_child
-        if cfn_memory:
-            cfn_memory.apply_removal_policy(props.removal_policy)
-
-        # The Runtime
         runtime = agentcore.Runtime(
             self,
             "AgentCoreRuntime",
             runtime_name=props.runtime_name,
             agent_runtime_artifact=code_artifact,
             description=props.description,
-            environment_variables={
-                "MEMORY_ID": memory.memory_id,
-                "REGION": self.region,
-                "MODEL_ID": props.model_id,
-                "LOG_LEVEL": props.log_level,
-                **(
-                    {"SYSTEM_PROMPT": props.system_prompt}
-                    if props.system_prompt
-                    else {}
-                ),
-                **props.environment_variables,
-            },
+            environment_variables=env_vars,
         )
 
         # --- Permissions ---
-        # Cross-region inference profiles (us., eu., ap.) route to foundation
-        # models in other regions. IAM needs access to both the profile and
-        # the underlying foundation model (wildcard region).
-        prefix = props.model_id.split(".")[0]
-        if prefix in ("us", "eu", "ap"):
-            # The base model ID without the region prefix
-            base_model_id = props.model_id[len(prefix) + 1 :]
-            model_resources = [
-                # The inference profile in this region
-                (
-                    f"arn:aws:bedrock:{self.region}:{self.account}"
-                    f":inference-profile/{props.model_id}"
-                ),
-                # The foundation model in any region Bedrock may route to
-                f"arn:aws:bedrock:*::foundation-model/{base_model_id}",
-            ]
-        else:
-            model_resources = [
-                f"arn:aws:bedrock:{self.region}::foundation-model/{props.model_id}"
-            ]
-        runtime.role.add_to_policy(
-            iam.PolicyStatement(
-                actions=[
-                    "bedrock:InvokeModel",
-                    "bedrock:InvokeModelWithResponseStream",
-                ],
-                resources=model_resources,
+        # Model access (only for BuiltInAgent)
+        if model_id:
+            # Cross-region inference profiles (us., eu., ap.) route to foundation
+            # models in other regions. IAM needs access to both the profile and
+            # the underlying foundation model (wildcard region).
+            prefix = model_id.split(".")[0]
+            if prefix in ("us", "eu", "ap"):
+                base_model_id = model_id[len(prefix) + 1 :]
+                model_resources = [
+                    (
+                        f"arn:aws:bedrock:{self.region}:{self.account}"
+                        f":inference-profile/{model_id}"
+                    ),
+                    f"arn:aws:bedrock:*::foundation-model/{base_model_id}",
+                ]
+            else:
+                model_resources = [
+                    f"arn:aws:bedrock:{self.region}::foundation-model/{model_id}"
+                ]
+            runtime.role.add_to_policy(
+                iam.PolicyStatement(
+                    actions=[
+                        "bedrock:InvokeModel",
+                        "bedrock:InvokeModelWithResponseStream",
+                    ],
+                    resources=model_resources,
+                )
             )
-        )
 
-        # Memory Access
-        memory.grant_read(runtime)
-        memory.grant_write(runtime)
+        # Memory access (only if memory was created)
+        if memory:
+            memory.grant_read(runtime)
+            memory.grant_write(runtime)
 
         # Broad permission to look at what log groups exist
         runtime.role.add_to_policy(
@@ -122,11 +139,8 @@ class AgentCore(Stack):
                     "logs:DescribeLogStreams",
                 ],
                 resources=[
-                    # The main agent logs
                     f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock-agentcore/*",
-                    # The OpenTelemetry Trace logs
                     f"arn:aws:logs:{self.region}:{self.account}:log-group:aws/spans:*",
-                    # The OpenTelemetry Application Signals logs
                     f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/application-signals/data:*",
                 ],
             )
@@ -175,8 +189,7 @@ class AgentCore(Stack):
             )
         )
 
-        # AgentCore Identity Access - ensure memory responses
-        # are attributed to the correct session and user
+        # AgentCore Identity Access
         runtime.role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
