@@ -38,15 +38,13 @@ class TestModelConfig:
 
     def test_budget_tokens_must_be_less_than_max_tokens(self):
         with pytest.raises(
-            ValueError, 
-            match="budget_tokens must be less than max_tokens"
+            ValueError, match="budget_tokens must be less than max_tokens"
         ):
             ModelConfig(max_tokens=8000, budget_tokens=8000)
 
     def test_budget_tokens_greater_than_max_tokens_raises(self):
         with pytest.raises(
-            ValueError, 
-            match="budget_tokens must be less than max_tokens"
+            ValueError, match="budget_tokens must be less than max_tokens"
         ):
             ModelConfig(max_tokens=4000, budget_tokens=5000)
 

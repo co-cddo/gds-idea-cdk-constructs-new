@@ -130,7 +130,6 @@ class TestRuntimeCreation:
                 "Description": (
                     "An AgentCore Runtime deployed by the Agent Constructs Template"
                 ),
-
             },
         )
 
@@ -152,15 +151,17 @@ class TestBuiltInAgentEnvVars:
         template.has_resource_properties(
             "AWS::BedrockAgentCore::Runtime",
             {
-                "EnvironmentVariables": Match.object_like({
-                    "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
-                    "MAX_TOKENS": "8000",
-                    "BUDGET_TOKENS": "4000",
-                    "THINKING_ENABLED": "true",
-                    "MAX_HISTORY": "20",
-                    "REGION": "eu-west-2",
-                    "LOG_LEVEL": "INFO",
-                }),
+                "EnvironmentVariables": Match.object_like(
+                    {
+                        "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
+                        "MAX_TOKENS": "8000",
+                        "BUDGET_TOKENS": "4000",
+                        "THINKING_ENABLED": "true",
+                        "MAX_HISTORY": "20",
+                        "REGION": "eu-west-2",
+                        "LOG_LEVEL": "INFO",
+                    }
+                ),
             },
         )
 
@@ -169,14 +170,16 @@ class TestBuiltInAgentEnvVars:
         template.has_resource_properties(
             "AWS::BedrockAgentCore::Runtime",
             {
-                "EnvironmentVariables": Match.object_like({
-                    "MODEL_ID": "eu.anthropic.claude-haiku-4-5-20251001",
-                    "MAX_TOKENS": "4000",
-                    "BUDGET_TOKENS": "2000",
-                    "THINKING_ENABLED": "false",
-                    "LOG_LEVEL": "DEBUG",
-                    "SYSTEM_PROMPT": "You are a test agent.",
-                }),
+                "EnvironmentVariables": Match.object_like(
+                    {
+                        "MODEL_ID": "eu.anthropic.claude-haiku-4-5-20251001",
+                        "MAX_TOKENS": "4000",
+                        "BUDGET_TOKENS": "2000",
+                        "THINKING_ENABLED": "false",
+                        "LOG_LEVEL": "DEBUG",
+                        "SYSTEM_PROMPT": "You are a test agent.",
+                    }
+                ),
             },
         )
 
@@ -203,11 +206,13 @@ class TestCustomAgentEnvVars:
         template.has_resource_properties(
             "AWS::BedrockAgentCore::Runtime",
             {
-                "EnvironmentVariables": Match.object_like({
-                    "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
-                    "REGION": "eu-west-2",
-                    "MY_VAR": "hello",
-                }),
+                "EnvironmentVariables": Match.object_like(
+                    {
+                        "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
+                        "REGION": "eu-west-2",
+                        "MY_VAR": "hello",
+                    }
+                ),
             },
         )
 
@@ -216,10 +221,12 @@ class TestCustomAgentEnvVars:
         template.has_resource_properties(
             "AWS::BedrockAgentCore::Runtime",
             {
-                "EnvironmentVariables": Match.object_like({
-                    "API_KEY": "secret",
-                    "REGION": "eu-west-2",
-                }),
+                "EnvironmentVariables": Match.object_like(
+                    {
+                        "API_KEY": "secret",
+                        "REGION": "eu-west-2",
+                    }
+                ),
             },
         )
 
@@ -266,9 +273,11 @@ class TestMemory:
         template.has_resource_properties(
             "AWS::BedrockAgentCore::Runtime",
             {
-                "EnvironmentVariables": Match.object_like({
-                    "MEMORY_ID": Match.any_value(),
-                }),
+                "EnvironmentVariables": Match.object_like(
+                    {
+                        "MEMORY_ID": Match.any_value(),
+                    }
+                ),
             },
         )
 
@@ -294,28 +303,31 @@ class TestModelPermissions:
     """Tests that model invoke permissions are granted correctly."""
 
     def test_cross_region_model_gets_inference_profile_permission(
-            self, 
-            builtin_default
-        ):
+        self, builtin_default
+    ):
         """eu.* model should get inference-profile ARN + foundation-model wildcard."""
         template = Template.from_stack(builtin_default)
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "bedrock:InvokeModel",
-                                "bedrock:InvokeModelWithResponseStream",
-                            ],
-                            "Effect": "Allow",
-                            "Resource": [
-                                "arn:aws:bedrock:eu-west-2:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-6",
-                                "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
-                            ],
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "bedrock:InvokeModel",
+                                        "bedrock:InvokeModelWithResponseStream",
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:bedrock:eu-west-2:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-6",
+                                        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
+                                    ],
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -327,15 +339,19 @@ class TestModelPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "bedrock:InvokeModel",
-                                "bedrock:InvokeModelWithResponseStream",
-                            ],
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "bedrock:InvokeModel",
+                                        "bedrock:InvokeModelWithResponseStream",
+                                    ],
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -351,15 +367,21 @@ class TestMemoryPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": Match.array_with([
-                                "bedrock-agentcore:GetEvent",
-                                "bedrock-agentcore:ListEvents",
-                            ]),
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": Match.array_with(
+                                        [
+                                            "bedrock-agentcore:GetEvent",
+                                            "bedrock-agentcore:ListEvents",
+                                        ]
+                                    ),
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -371,12 +393,16 @@ class TestMemoryPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": "bedrock-agentcore:CreateEvent",
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": "bedrock-agentcore:CreateEvent",
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -396,17 +422,21 @@ class TestObservabilityPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "logs:CreateLogGroup",
-                                "logs:CreateLogStream",
-                                "logs:PutLogEvents",
-                                "logs:DescribeLogStreams",
-                            ],
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "logs:CreateLogGroup",
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents",
+                                        "logs:DescribeLogStreams",
+                                    ],
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -417,18 +447,22 @@ class TestObservabilityPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "xray:PutTraceSegments",
-                                "xray:PutTelemetryRecords",
-                                "xray:GetSamplingRules",
-                                "xray:GetSamplingTargets",
-                            ],
-                            "Effect": "Allow",
-                            "Resource": "*",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "xray:PutTraceSegments",
+                                        "xray:PutTelemetryRecords",
+                                        "xray:GetSamplingRules",
+                                        "xray:GetSamplingTargets",
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": "*",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -439,17 +473,23 @@ class TestObservabilityPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": "cloudwatch:PutMetricData",
-                            "Effect": "Allow",
-                            "Condition": {
-                                "StringEquals": (
-                                    {"cloudwatch:namespace": "bedrock-agentcore"}
-                                ),
-                            },
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": "cloudwatch:PutMetricData",
+                                    "Effect": "Allow",
+                                    "Condition": {
+                                        "StringEquals": (
+                                            {
+                                                "cloudwatch:namespace": "bedrock-agentcore"
+                                            }
+                                        ),
+                                    },
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
@@ -460,41 +500,48 @@ class TestObservabilityPermissions:
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "bedrock-agentcore:GetWorkloadAccessToken",
-                                "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
-                                "bedrock-agentcore:GetWorkloadAccessTokenForUserId",
-                            ],
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "bedrock-agentcore:GetWorkloadAccessToken",
+                                        "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+                                        "bedrock-agentcore:GetWorkloadAccessTokenForUserId",
+                                    ],
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
 
     def test_observability_permissions_present_for_custom_agent(
-            self, 
-            custom_agent_no_memory
-        ): 
+        self, custom_agent_no_memory
+    ):
         """Custom agents should also get logging/xray/metrics permissions."""
         template = Template.from_stack(custom_agent_no_memory)
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
                 "PolicyDocument": {
-                    "Statement": Match.array_with([
-                        Match.object_like({
-                            "Action": [
-                                "xray:PutTraceSegments",
-                                "xray:PutTelemetryRecords",
-                                "xray:GetSamplingRules",
-                                "xray:GetSamplingTargets",
-                            ],
-                            "Effect": "Allow",
-                        })
-                    ])
+                    "Statement": Match.array_with(
+                        [
+                            Match.object_like(
+                                {
+                                    "Action": [
+                                        "xray:PutTraceSegments",
+                                        "xray:PutTelemetryRecords",
+                                        "xray:GetSamplingRules",
+                                        "xray:GetSamplingTargets",
+                                    ],
+                                    "Effect": "Allow",
+                                }
+                            )
+                        ]
+                    )
                 }
             },
         )
