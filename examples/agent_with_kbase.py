@@ -52,6 +52,7 @@ kb = KnowledgeBase(
     kb_props=KnowledgeBaseProps(
         chunking=ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=10),
         description="Knowledge base for the agent demo",
+        retain_on_delete=False,
     ),
 )
 # --- AgentCore Runtime (with KB attached) ---
