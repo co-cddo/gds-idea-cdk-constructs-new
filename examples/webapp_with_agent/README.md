@@ -156,3 +156,11 @@ locally with `idea-app smoke-test` against a deployed AgentCore runtime.
 6. **Open http://localhost:8080** and ask a question (e.g. "When is the team standup?").
 
    Press Enter in the terminal to stop and clean up.
+
+7. **Destroy the example AgentCore and Knowledge base stacks** (from the repo root):
+
+    Make sure your s3 bucket is empty before doing this, otherwise it will throw an error during deletion and you will need to delete manually.
+
+    ```bash
+    cdk destroy --all --app "python examples/agent_with_kbase.py"
+    ```
