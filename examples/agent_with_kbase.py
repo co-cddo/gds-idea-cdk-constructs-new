@@ -14,7 +14,7 @@ After deployment:
     # Testing it
 
     echo "The team standup is every day at 9:30am. The retrospective is on Fridays at 2pm." > test-doc.txt
-    aws s3 cp test-doc.txt s3://my-agent-kb-kb-data-development/
+    aws s3 cp test-doc.txt s3://my-agent-kb1-kb-data-development/
 
     2) Run from the terminal with bedrock-agentcore cli (assuming deployed in dev account), runtime arn is provided during deployment
     aws bedrock-agentcore invoke-agent-runtime \
@@ -48,7 +48,7 @@ config = DeploymentConfig(cdk_env)
 kb = KnowledgeBase(
     app,
     deployment_config=config,
-    app_config="my-agent-kb",
+    app_config="my-agent-kb1",
     kb_props=KnowledgeBaseProps(
         chunking=ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=10),
         description="Knowledge base for the agent demo",
