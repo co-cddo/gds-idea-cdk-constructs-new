@@ -42,7 +42,6 @@ if KB_ID:
     tools = [retrieve]
     logger.info("KB retrieval tool enabled (KB_ID=%s)", KB_ID)
 
-logger.info("Agent initialising (Model=%s, Region=%s)", MODEL_ID, REGION)
 
 
 # ==========================================================================

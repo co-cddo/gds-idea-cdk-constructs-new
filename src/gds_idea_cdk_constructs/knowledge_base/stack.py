@@ -98,14 +98,22 @@ class KnowledgeBase(Stack):
 
         With an AgentCore runtime (cross-stack)::
 
-            from gds_idea_cdk_constructs.agent_core import AgentCore, AgentCoreProperties
+            from gds_idea_cdk_constructs.agent_core import (
+                DEFAULT_AGENT_CODE_DIR,
+                AgentCore,
+                AgentCoreProperties,
+                CustomAgent,
+            )
 
             agent = AgentCore(
                 app,
                 "MyAgentStack",
                 props=AgentCoreProperties(
                     runtime_name="my-agent",
-                    environment_variables=kb.environment_variables,
+                    agent=CustomAgent(
+                        agent_code_directory=DEFAULT_AGENT_CODE_DIR,
+                        environment_variables=kb.environment_variables,
+                    ),
                 ),
             )
 

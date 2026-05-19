@@ -1,4 +1,5 @@
 from .props import (
+    _DEFAULT_AGENT_CODE_DIR as DEFAULT_AGENT_CODE_DIR,
     AgentCoreProperties,
     BuiltInAgent,
     CustomAgent,
@@ -12,6 +13,7 @@ __all__ = [
     "AgentCoreProperties",
     "BuiltInAgent",
     "CustomAgent",
+    "DEFAULT_AGENT_CODE_DIR",
     "MemoryConfig",
     "ModelConfig",
 ]

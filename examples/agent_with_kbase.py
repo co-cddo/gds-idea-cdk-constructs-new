@@ -1,35 +1,44 @@
-"""Example: AgentCore runtime with a Knowledge Base attached
+"""Example: AgentCore runtime with a Knowledge Base attached.
+
 Usage:
     cdk synth          # Verify CloudFormation templates
     cdk deploy --all   # Deploy both stacks to AWS
+
 After deployment:
     1. Upload documents to the KB data bucket (see DataBucketName output)
     2. Wait for auto-sync to ingest (default 5 min batch window)
     3. Invoke the AgentCore runtime and ask questions about your documents
 
-    Deploy/Test with
-    cdk deploy --all --require-approval broadening --app "python agent_with_kb.app.py"
+Deploy/Test with:
+    cdk deploy --all --require-approval broadening \
+        --app "python agent_with_kb.app.py"
 
-    1) Set up a small knowledge base file in terminal for the dev account
-    # Testing it
+Testing it:
+    1) Set up a small knowledge base file in terminal for the dev account:
 
-    echo "The team standup is every day at 9:30am. The retrospective is on Fridays at 2pm." > test-doc.txt
+    echo "The team standup is every day at 9:30am." > test-doc.txt
     aws s3 cp test-doc.txt s3://my-agent-kb1-kb-data-development/
 
-    2) Run from the terminal with bedrock-agentcore cli (assuming deployed in dev account), runtime arn is provided during deployment
+    2) Run from the terminal with bedrock-agentcore cli
+       (assuming deployed in dev account, runtime arn from deploy output):
+
     aws bedrock-agentcore invoke-agent-runtime \
-    --agent-runtime-arn <RUNTIME-ARN> \
-    --payload "$(echo -n '{"prompt":"When is the team standup?","session_id":"test-kb-1"}' | base64)" \
-    --region eu-west-2 \
-    outfile.json
-
-
+        --agent-runtime-arn <RUNTIME-ARN> \
+        --payload "$(echo -n '{"prompt":"When is standup?"}' | base64)" \
+        --region eu-west-2 \
+        outfile.json
 """
 
 import aws_cdk as cdk
 
 from gds_idea_cdk_constructs import DeploymentConfig
-from gds_idea_cdk_constructs.agent_core import AgentCore, AgentCoreProperties
+from gds_idea_cdk_constructs.agent_core import (
+    DEFAULT_AGENT_CODE_DIR,
+    AgentCore,
+    AgentCoreProperties,
+    CustomAgent,
+    MemoryConfig,
+)
 from gds_idea_cdk_constructs.knowledge_base import (
     ChunkingConfig,
     KnowledgeBase,
@@ -61,8 +70,11 @@ agent = AgentCore(
     "MyAgentStack",
     props=AgentCoreProperties(
         runtime_name="my_kb_agent",
-        memory_name="my_kb_agent_session_store",
-        environment_variables=kb.environment_variables,
+        memory=MemoryConfig(name="my_kb_agent_session_store"),
+        agent=CustomAgent(
+            agent_code_directory=DEFAULT_AGENT_CODE_DIR,
+            environment_variables=kb.environment_variables,
+        ),
     ),
     env=cdk_env,
 )
