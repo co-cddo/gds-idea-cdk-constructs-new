@@ -11,7 +11,13 @@ Knowledge Base → AgentCore → WebApp, with grants wiring them together.
 ```python
 import aws_cdk as cdk
 from gds_idea_cdk_constructs import AppConfig, DeploymentConfig
-from gds_idea_cdk_constructs.agent_core import AgentCore, AgentCoreProperties
+from gds_idea_cdk_constructs.agent_core import (
+    DEFAULT_AGENT_CODE_DIR,
+    AgentCore,
+    AgentCoreProperties,
+    CustomAgent,
+    MemoryConfig,
+)
 from gds_idea_cdk_constructs.knowledge_base import (
     ChunkingConfig,
     KnowledgeBase,
@@ -41,13 +47,16 @@ agent = AgentCore(
     "AgentStack",
     props=AgentCoreProperties(
         runtime_name="my_agent",
-        environment_variables=kb.environment_variables,
+        agent=CustomAgent(
+            agent_code_directory=DEFAULT_AGENT_CODE_DIR,
+            environment_variables=kb.environment_variables,
+        ),
     ),
     env=cdk_env,
 )
 kb.grant_retrieve(agent.runtime_role)
 
-# 3. WebApp — pass the runtime ARN as an environment variable and grant permissions to invoke agentcore runtime
+# 3. WebApp — pass the runtime ARN and grant invoke permissions
 webapp = WebApp(
     app,
     deployment_config=config,
@@ -159,7 +168,8 @@ locally with `idea-app smoke-test` against a deployed AgentCore runtime.
 
 7. **Destroy the example AgentCore and Knowledge base stacks** (from the repo root):
 
-    Make sure your s3 bucket is empty before doing this, otherwise it will throw an error during deletion and you will need to delete manually.
+    Note: It may throw an error during deletion of the S3 bucket and you will need to delete manually in Cloudformation as versioning information may stop deletion of the bucket 
+    and cause a failed stack state. The knowledge base stack implements auto_delete_objects by default when retain_on_delete is set to False.
 
     ```bash
     cdk destroy --all --app "python examples/agent_with_kbase.py"
