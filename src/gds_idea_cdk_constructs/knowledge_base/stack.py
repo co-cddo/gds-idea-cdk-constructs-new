@@ -256,6 +256,7 @@ class KnowledgeBase(Stack):
             "DataBucket",
             bucket_name=f"{app_prefix}-kb-data-{env_name}",
             removal_policy=removal_policy,
+            auto_delete_objects=not self.kb_props.retain_on_delete,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             versioned=True,
