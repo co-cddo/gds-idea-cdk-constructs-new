@@ -9,6 +9,7 @@ import json
 from collections.abc import AsyncGenerator
 from datetime import date
 from typing import Any
+import os
 
 from bedrock_agentcore.memory import MemoryClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -26,6 +27,7 @@ config = Config.from_env()
 app = BedrockAgentCoreApp()
 memory_client = MemoryClient(region_name=config.region) if config.memory_id else None
 
+logger.info("Agent initialising (Model=%s, Region=%s)", config.model_id, config.region)
 # --- Knowledge Base (optional, injected if KB is attached via CDK) ---
 KB_ID = os.getenv("KB_ID")
 if KB_ID:
@@ -37,7 +39,6 @@ tools = []
 # Conditional import and set up of knowledge base if available
 if KB_ID:
     from strands_tools import retrieve
-
     tools = [retrieve]
     logger.info("KB retrieval tool enabled (KB_ID=%s)", KB_ID)
 
@@ -47,7 +48,6 @@ logger.info("Agent initialising (Model=%s, Region=%s)", MODEL_ID, REGION)
 # ==========================================================================
 # Memory
 # ==========================================================================
-
 
 def get_session_history(session_id: str) -> list:
     """Load conversation history from the Memory Store in Converse format."""
@@ -65,17 +65,17 @@ def get_session_history(session_id: str) -> list:
         if not events:
             return []
 
-        sorted_events = sorted(events, key=lambda e: e.get("eventTime", ""))
+        sorted_events = sorted(
+            events, key=lambda e: e.get("eventTime", "")
+        )
         messages = []
         for event in sorted_events:
             data = _extract_blob(event)
             if data and data.get("role") and data.get("content"):
-                messages.append(
-                    {
-                        "role": data["role"],
-                        "content": [{"text": data["content"]}],
-                    }
-                )
+                messages.append({
+                    "role": data["role"],
+                    "content": [{"text": data["content"]}],
+                })
         return messages
 
     except Exception:
@@ -131,7 +131,6 @@ def save_interaction(session_id: str, role: str, content: str) -> None:
 # Agent factory
 # ==========================================================================
 
-
 def create_agent(history: list[dict]) -> Agent:
     """Create a Strands Agent with conversation history and thinking enabled."""
     system_prompt = config.system_prompt.replace(
@@ -169,7 +168,6 @@ def create_agent(history: list[dict]) -> Agent:
 # ==========================================================================
 # Main turn
 # ==========================================================================
-
 
 async def run_agent_turn(
     query: str, session_id: str
@@ -236,7 +234,6 @@ async def run_agent_turn(
 # ==========================================================================
 # Entrypoint
 # ==========================================================================
-
 
 @app.entrypoint
 async def invoke(payload):
