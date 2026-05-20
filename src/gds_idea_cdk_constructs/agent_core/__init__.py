@@ -3,6 +3,7 @@ from .props import (
     AgentCoreProperties,
     BuiltInAgent,
     CustomAgent,
+    KnowledgeBaseConfig,
     MemoryConfig,
     ModelConfig,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "BuiltInAgent",
     "CustomAgent",
     "DEFAULT_AGENT_CODE_DIR",
+    "KnowledgeBaseConfig",
     "MemoryConfig",
     "ModelConfig",
 ]
