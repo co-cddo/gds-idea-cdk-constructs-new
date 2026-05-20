@@ -71,6 +71,15 @@ class AgentCore(Stack):
                 cfn_memory.apply_removal_policy(props.removal_policy)
             env_vars["MEMORY_ID"] = memory.memory_id
 
+        # --- Knowledge Base (optional)
+        if props.knowledge_base:
+            kb_config = props.knowledge_base
+            env_vars.update(kb_config.knowledge_base.environment_variables)
+            env_vars["MIN_SCORE"] = str(kb_config.min_score)
+            env_vars["RETRIEVE_ENABLE_METADATA_DEFAULT"] = str(
+                kb_config.enable_metadata
+            ).lower()
+
         # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
             directory=code_dir,
@@ -207,6 +216,10 @@ class AgentCore(Stack):
                 ],
             )
         )
+
+        # Knowledge Base permissions
+        if props.knowledge_base:
+            props.knowledge_base.knowledge_base.grant_retrieve(runtime.role)
 
         # Show outputs
         CfnOutput(self, "RuntimeArn", value=runtime.agent_runtime_arn)
