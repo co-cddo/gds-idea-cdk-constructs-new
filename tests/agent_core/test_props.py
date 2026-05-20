@@ -10,7 +10,6 @@ from gds_idea_cdk_constructs.agent_core.props import (
     ModelConfig,
 )
 
-
 # -- ModelConfig tests --
 
 
@@ -39,16 +38,12 @@ def test_model_config_custom_values():
 
 
 def test_model_config_budget_tokens_must_be_less_than_max_tokens():
-    with pytest.raises(
-        ValueError, match="budget_tokens must be less than max_tokens"
-    ):
+    with pytest.raises(ValueError, match="budget_tokens must be less than max_tokens"):
         ModelConfig(max_tokens=8000, budget_tokens=8000)
 
 
 def test_model_config_budget_tokens_greater_than_max_tokens_raises():
-    with pytest.raises(
-        ValueError, match="budget_tokens must be less than max_tokens"
-    ):
+    with pytest.raises(ValueError, match="budget_tokens must be less than max_tokens"):
         ModelConfig(max_tokens=4000, budget_tokens=5000)
 
 
