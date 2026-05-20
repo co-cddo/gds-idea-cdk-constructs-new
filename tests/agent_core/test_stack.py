@@ -118,24 +118,23 @@ def custom_agent_no_memory(cdk_app, cdk_env):
 # =============================================================================
 
 
-class TestRuntimeCreation:
+def test_creates_runtime_resource(builtin_default):
     """Tests that the AgentCore Runtime is created correctly."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "AgentRuntimeName": "test_agent",
+            "Description": (
+                "An AgentCore Runtime deployed by the Agent Constructs Template"
+            ),
+        },
+    )
 
-    def test_creates_runtime_resource(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "AgentRuntimeName": "test_agent",
-                "Description": (
-                    "An AgentCore Runtime deployed by the Agent Constructs Template"
-                ),
-            },
-        )
 
-    def test_runtime_has_output(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_output("RuntimeArn", {"Value": Match.any_value()})
+def test_runtime_has_output(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_output("RuntimeArn", {"Value": Match.any_value()})
 
 
 # =============================================================================
@@ -143,54 +142,55 @@ class TestRuntimeCreation:
 # =============================================================================
 
 
-class TestBuiltInAgentEnvVars:
-    """Tests that BuiltInAgent mode injects the correct env vars."""
+def test_builtin_default_env_vars(builtin_default):
+    """Tests that BuiltInAgent mode injects the correct default env vars."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
+                    "MAX_TOKENS": "8000",
+                    "BUDGET_TOKENS": "4000",
+                    "THINKING_ENABLED": "true",
+                    "MAX_HISTORY": "20",
+                    "REGION": "eu-west-2",
+                    "LOG_LEVEL": "INFO",
+                }
+            ),
+        },
+    )
 
-    def test_default_env_vars(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "EnvironmentVariables": Match.object_like(
-                    {
-                        "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
-                        "MAX_TOKENS": "8000",
-                        "BUDGET_TOKENS": "4000",
-                        "THINKING_ENABLED": "true",
-                        "MAX_HISTORY": "20",
-                        "REGION": "eu-west-2",
-                        "LOG_LEVEL": "INFO",
-                    }
-                ),
-            },
-        )
 
-    def test_custom_model_env_vars(self, builtin_custom_model):
-        template = Template.from_stack(builtin_custom_model)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "EnvironmentVariables": Match.object_like(
-                    {
-                        "MODEL_ID": "eu.anthropic.claude-haiku-4-5-20251001",
-                        "MAX_TOKENS": "4000",
-                        "BUDGET_TOKENS": "2000",
-                        "THINKING_ENABLED": "false",
-                        "LOG_LEVEL": "DEBUG",
-                        "SYSTEM_PROMPT": "You are a test agent.",
-                    }
-                ),
-            },
-        )
+def test_builtin_custom_model_env_vars(builtin_custom_model):
+    """Tests that custom model settings are injected as env vars."""
+    template = Template.from_stack(builtin_custom_model)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "MODEL_ID": "eu.anthropic.claude-haiku-4-5-20251001",
+                    "MAX_TOKENS": "4000",
+                    "BUDGET_TOKENS": "2000",
+                    "THINKING_ENABLED": "false",
+                    "LOG_LEVEL": "DEBUG",
+                    "SYSTEM_PROMPT": "You are a test agent.",
+                }
+            ),
+        },
+    )
 
-    def test_no_system_prompt_env_var_when_empty(self, builtin_default):
-        """When system_prompt is empty, SYSTEM_PROMPT env var should not be set."""
-        template = Template.from_stack(builtin_default)
-        template_json = template.to_json()
-        for resource in template_json["Resources"].values():
-            if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
-                env_vars = resource["Properties"].get("EnvironmentVariables", {})
-                assert "SYSTEM_PROMPT" not in env_vars
+
+def test_no_system_prompt_env_var_when_empty(builtin_default):
+    """When system_prompt is empty, SYSTEM_PROMPT env var should not be set."""
+    template = Template.from_stack(builtin_default)
+    template_json = template.to_json()
+    for resource in template_json["Resources"].values():
+        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
+            env_vars = resource["Properties"].get("EnvironmentVariables", {})
+            assert "SYSTEM_PROMPT" not in env_vars
 
 
 # =============================================================================
@@ -198,49 +198,49 @@ class TestBuiltInAgentEnvVars:
 # =============================================================================
 
 
-class TestCustomAgentEnvVars:
-    """Tests that CustomAgent mode injects the correct env vars."""
+def test_custom_agent_injects_model_id_and_region(custom_agent_with_memory):
+    """Tests that CustomAgent mode injects model_id, region, and user env vars."""
+    template = Template.from_stack(custom_agent_with_memory)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
+                    "REGION": "eu-west-2",
+                    "MY_VAR": "hello",
+                }
+            ),
+        },
+    )
 
-    def test_injects_model_id_and_region(self, custom_agent_with_memory):
-        template = Template.from_stack(custom_agent_with_memory)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "EnvironmentVariables": Match.object_like(
-                    {
-                        "MODEL_ID": "eu.anthropic.claude-sonnet-4-6",
-                        "REGION": "eu-west-2",
-                        "MY_VAR": "hello",
-                    }
-                ),
-            },
-        )
 
-    def test_injects_user_env_vars(self, custom_agent_no_memory):
-        template = Template.from_stack(custom_agent_no_memory)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "EnvironmentVariables": Match.object_like(
-                    {
-                        "API_KEY": "secret",
-                        "REGION": "eu-west-2",
-                    }
-                ),
-            },
-        )
+def test_custom_agent_injects_user_env_vars(custom_agent_no_memory):
+    template = Template.from_stack(custom_agent_no_memory)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "API_KEY": "secret",
+                    "REGION": "eu-west-2",
+                }
+            ),
+        },
+    )
 
-    def test_does_not_inject_builtin_specific_vars(self, custom_agent_no_memory):
-        """CustomAgent should NOT get MAX_TOKENS, BUDGET_TOKENS, etc."""
-        template = Template.from_stack(custom_agent_no_memory)
-        template_json = template.to_json()
-        for resource in template_json["Resources"].values():
-            if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
-                env_vars = resource["Properties"].get("EnvironmentVariables", {})
-                assert "MAX_TOKENS" not in env_vars
-                assert "BUDGET_TOKENS" not in env_vars
-                assert "THINKING_ENABLED" not in env_vars
-                assert "LOG_LEVEL" not in env_vars
+
+def test_custom_agent_does_not_inject_builtin_specific_vars(custom_agent_no_memory):
+    """CustomAgent should NOT get MAX_TOKENS, BUDGET_TOKENS, etc."""
+    template = Template.from_stack(custom_agent_no_memory)
+    template_json = template.to_json()
+    for resource in template_json["Resources"].values():
+        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
+            env_vars = resource["Properties"].get("EnvironmentVariables", {})
+            assert "MAX_TOKENS" not in env_vars
+            assert "BUDGET_TOKENS" not in env_vars
+            assert "THINKING_ENABLED" not in env_vars
+            assert "LOG_LEVEL" not in env_vars
 
 
 # =============================================================================
@@ -248,50 +248,52 @@ class TestCustomAgentEnvVars:
 # =============================================================================
 
 
-class TestMemory:
-    """Tests that memory is created or skipped based on config."""
+def test_memory_created_when_configured(builtin_default):
+    """Tests that memory is created when config is provided."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Memory",
+        {
+            "Name": "chat_session_store",
+            "Description": "Stores short-term conversation history",
+        },
+    )
 
-    def test_memory_created_when_configured(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Memory",
-            {
-                "Name": "chat_session_store",
-                "Description": "Stores short-term conversation history",
-            },
-        )
 
-    def test_custom_memory_name(self, builtin_custom_model):
-        template = Template.from_stack(builtin_custom_model)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Memory",
-            {"Name": "custom_memory"},
-        )
+def test_custom_memory_name(builtin_custom_model):
+    template = Template.from_stack(builtin_custom_model)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Memory",
+        {"Name": "custom_memory"},
+    )
 
-    def test_memory_id_injected_as_env_var(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::BedrockAgentCore::Runtime",
-            {
-                "EnvironmentVariables": Match.object_like(
-                    {
-                        "MEMORY_ID": Match.any_value(),
-                    }
-                ),
-            },
-        )
 
-    def test_no_memory_when_none(self, builtin_no_memory):
-        template = Template.from_stack(builtin_no_memory)
-        template.resource_count_is("AWS::BedrockAgentCore::Memory", 0)
+def test_memory_id_injected_as_env_var(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "MEMORY_ID": Match.any_value(),
+                }
+            ),
+        },
+    )
 
-    def test_no_memory_id_env_var_when_none(self, builtin_no_memory):
-        template = Template.from_stack(builtin_no_memory)
-        template_json = template.to_json()
-        for resource in template_json["Resources"].values():
-            if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
-                env_vars = resource["Properties"].get("EnvironmentVariables", {})
-                assert "MEMORY_ID" not in env_vars
+
+def test_no_memory_when_none(builtin_no_memory):
+    template = Template.from_stack(builtin_no_memory)
+    template.resource_count_is("AWS::BedrockAgentCore::Memory", 0)
+
+
+def test_no_memory_id_env_var_when_none(builtin_no_memory):
+    template = Template.from_stack(builtin_no_memory)
+    template_json = template.to_json()
+    for resource in template_json["Resources"].values():
+        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
+            env_vars = resource["Properties"].get("EnvironmentVariables", {})
+            assert "MEMORY_ID" not in env_vars
 
 
 # =============================================================================
@@ -299,251 +301,241 @@ class TestMemory:
 # =============================================================================
 
 
-class TestModelPermissions:
-    """Tests that model invoke permissions are granted correctly."""
-
-    def test_cross_region_model_gets_inference_profile_permission(
-        self, builtin_default
-    ):
-        """eu.* model should get inference-profile ARN + foundation-model wildcard."""
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "bedrock:InvokeModel",
-                                        "bedrock:InvokeModelWithResponseStream",
-                                    ],
-                                    "Effect": "Allow",
-                                    "Resource": [
-                                        "arn:aws:bedrock:eu-west-2:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-6",
-                                        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
-                                    ],
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
-
-    def test_custom_agent_gets_model_permissions(self, custom_agent_with_memory):
-        """CustomAgent should also get bedrock:InvokeModel permissions."""
-        template = Template.from_stack(custom_agent_with_memory)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "bedrock:InvokeModel",
-                                        "bedrock:InvokeModelWithResponseStream",
-                                    ],
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
+def test_cross_region_model_gets_inference_profile_permission(builtin_default):
+    """eu.* model should get inference-profile ARN + foundation-model wildcard."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "bedrock:InvokeModel",
+                                    "bedrock:InvokeModelWithResponseStream",
+                                ],
+                                "Effect": "Allow",
+                                "Resource": [
+                                    "arn:aws:bedrock:eu-west-2:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-6",
+                                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
+                                ],
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
 
 
-class TestMemoryPermissions:
-    """Tests that memory read/write permissions are granted when memory exists."""
-
-    def test_memory_read_permissions_granted(self, builtin_default):
-        """When memory is enabled, runtime should have memory read access."""
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": Match.array_with(
-                                        [
-                                            "bedrock-agentcore:GetEvent",
-                                            "bedrock-agentcore:ListEvents",
-                                        ]
-                                    ),
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
-
-    def test_memory_write_permissions_granted(self, builtin_default):
-        """When memory is enabled, runtime should have memory write access."""
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": "bedrock-agentcore:CreateEvent",
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
-
-    def test_no_memory_resource_when_disabled(self, builtin_no_memory):
-        """When memory=None, no memory resource should exist."""
-        template = Template.from_stack(builtin_no_memory)
-        template.resource_count_is("AWS::BedrockAgentCore::Memory", 0)
+def test_custom_agent_gets_model_permissions(custom_agent_with_memory):
+    """CustomAgent should also get bedrock:InvokeModel permissions."""
+    template = Template.from_stack(custom_agent_with_memory)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "bedrock:InvokeModel",
+                                    "bedrock:InvokeModelWithResponseStream",
+                                ],
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
 
 
-class TestObservabilityPermissions:
-    """Tests that logging, x-ray, and metrics permissions are always granted."""
+def test_memory_read_permissions_granted(builtin_default):
+    """When memory is enabled, runtime should have memory read access."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": Match.array_with(
+                                    [
+                                        "bedrock-agentcore:GetEvent",
+                                        "bedrock-agentcore:ListEvents",
+                                    ]
+                                ),
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
 
-    def test_cloudwatch_logs_permission(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "logs:CreateLogGroup",
-                                        "logs:CreateLogStream",
-                                        "logs:PutLogEvents",
-                                        "logs:DescribeLogStreams",
-                                    ],
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
 
-    def test_xray_permission(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "xray:PutTraceSegments",
-                                        "xray:PutTelemetryRecords",
-                                        "xray:GetSamplingRules",
-                                        "xray:GetSamplingTargets",
-                                    ],
-                                    "Effect": "Allow",
-                                    "Resource": "*",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
+def test_memory_write_permissions_granted(builtin_default):
+    """When memory is enabled, runtime should have memory write access."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": "bedrock-agentcore:CreateEvent",
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
 
-    def test_cloudwatch_metrics_permission(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": "cloudwatch:PutMetricData",
-                                    "Effect": "Allow",
-                                    "Condition": {
-                                        "StringEquals": (
-                                            {
-                                                "cloudwatch:namespace": (
-                                                    "bedrock-agentcore"
-                                                )
-                                            }
-                                        ),
+
+def test_no_memory_resource_when_disabled(builtin_no_memory):
+    """When memory=None, no memory resource should exist."""
+    template = Template.from_stack(builtin_no_memory)
+    template.resource_count_is("AWS::BedrockAgentCore::Memory", 0)
+
+
+def test_cloudwatch_logs_permission(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "logs:CreateLogGroup",
+                                    "logs:CreateLogStream",
+                                    "logs:PutLogEvents",
+                                    "logs:DescribeLogStreams",
+                                ],
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_xray_permission(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "xray:PutTraceSegments",
+                                    "xray:PutTelemetryRecords",
+                                    "xray:GetSamplingRules",
+                                    "xray:GetSamplingTargets",
+                                ],
+                                "Effect": "Allow",
+                                "Resource": "*",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_cloudwatch_metrics_permission(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": "cloudwatch:PutMetricData",
+                                "Effect": "Allow",
+                                "Condition": {
+                                    "StringEquals": {
+                                        "cloudwatch:namespace": "bedrock-agentcore"
                                     },
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
+                                },
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
 
-    def test_agentcore_identity_permission(self, builtin_default):
-        template = Template.from_stack(builtin_default)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "bedrock-agentcore:GetWorkloadAccessToken",
-                                        "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
-                                        "bedrock-agentcore:GetWorkloadAccessTokenForUserId",
-                                    ],
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
 
-    def test_observability_permissions_present_for_custom_agent(
-        self, custom_agent_no_memory
-    ):
-        """Custom agents should also get logging/xray/metrics permissions."""
-        template = Template.from_stack(custom_agent_no_memory)
-        template.has_resource_properties(
-            "AWS::IAM::Policy",
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": [
-                                        "xray:PutTraceSegments",
-                                        "xray:PutTelemetryRecords",
-                                        "xray:GetSamplingRules",
-                                        "xray:GetSamplingTargets",
-                                    ],
-                                    "Effect": "Allow",
-                                }
-                            )
-                        ]
-                    )
-                }
-            },
-        )
+def test_agentcore_identity_permission(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "bedrock-agentcore:GetWorkloadAccessToken",
+                                    "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+                                    "bedrock-agentcore:GetWorkloadAccessTokenForUserId",
+                                ],
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_observability_permissions_present_for_custom_agent(custom_agent_no_memory):
+    """Custom agents should also get logging/xray/metrics permissions."""
+    template = Template.from_stack(custom_agent_no_memory)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": [
+                                    "xray:PutTraceSegments",
+                                    "xray:PutTelemetryRecords",
+                                    "xray:GetSamplingRules",
+                                    "xray:GetSamplingTargets",
+                                ],
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
