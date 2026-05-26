@@ -184,6 +184,9 @@ kb = KnowledgeBase(
 )
 ```
 
+Note: retain_on_delete defaults to True i.e. the S3 bucket and any data therein will NOT be deleted. The stack should be emptied and deleted manually in this case. Otherwise, to avoid doing this, set retain_on_delete to False to allow
+cdk to destroy the s3 bucket and any data located inside.
+
 ### Attaching to AgentCore
 
 Use `KnowledgeBaseConfig` to wire a Knowledge Base into an AgentCore runtime:

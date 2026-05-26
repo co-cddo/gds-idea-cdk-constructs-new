@@ -41,15 +41,21 @@ from gds_idea_cdk_constructs.agent_core import (
     AgentCore,
     AgentCoreProperties,
     KnowledgeBaseConfig,
+    MemoryConfig,
 )
-from gds_idea_cdk_constructs.knowledge_base import KnowledgeBase
+from gds_idea_cdk_constructs.knowledge_base import KnowledgeBase, KnowledgeBaseProps
 
 app = cdk.App()
 cdk_env = cdk.Environment(account="992382722318", region="eu-west-2")
 config = DeploymentConfig(cdk_env)
 
 # --- Knowledge Base (all defaults: Titan V2, S3 Vectors, no chunking, auto-sync) ---
-kb = KnowledgeBase(app, deployment_config=config, app_config="my-agent-kb1")
+kb = KnowledgeBase(
+    app,
+    deployment_config=config,
+    app_config="my-agent-kb1",
+    kb_props=KnowledgeBaseProps(retain_on_delete=False),
+)
 
 # --- AgentCore Runtime (BuiltInAgent default + KB attached) ---
 agent = AgentCore(
@@ -58,6 +64,7 @@ agent = AgentCore(
     props=AgentCoreProperties(
         runtime_name="my_kb_agent",
         knowledge_base=KnowledgeBaseConfig(knowledge_base=kb),
+        memory=MemoryConfig(name="my_kb_agent_memory"),
     ),
     env=cdk_env,
 )
