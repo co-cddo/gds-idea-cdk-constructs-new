@@ -1,28 +1,24 @@
 # WebApp with AgentCore Runtime
 
 This example demonstrates how to connect a web application to a deployed
-AgentCore runtime with a Knowledge Base attached. All you need is a single environment variable: `AGENTCORE_RUNTIME_ARN`.
+AgentCore runtime with a Knowledge Base attached. All you need is a single
+environment variable: `AGENTCORE_RUNTIME_ARN`.
 
 ## Using with a Deployed WebApp (CDK)
 
-When deploying a WebApp to AWS via CDK, the pattern would be:
-Knowledge Base → AgentCore → WebApp, with grants wiring them together.
+When deploying a WebApp to AWS via CDK, the pattern is:
+Knowledge Base → AgentCore → WebApp, with `KnowledgeBaseConfig` and
+`grant_invoke` wiring them together.
 
 ```python
 import aws_cdk as cdk
 from gds_idea_cdk_constructs import AppConfig, DeploymentConfig
 from gds_idea_cdk_constructs.agent_core import (
-    DEFAULT_AGENT_CODE_DIR,
     AgentCore,
     AgentCoreProperties,
-    CustomAgent,
-    MemoryConfig,
+    KnowledgeBaseConfig,
 )
-from gds_idea_cdk_constructs.knowledge_base import (
-    ChunkingConfig,
-    KnowledgeBase,
-    KnowledgeBaseProps,
-)
+from gds_idea_cdk_constructs.knowledge_base import KnowledgeBase
 from gds_idea_cdk_constructs.web_app import WebApp, WebAppContainerProperties
 
 app = cdk.App()
@@ -31,30 +27,18 @@ config = DeploymentConfig(cdk_env)
 app_config = AppConfig(app_name="my-app", framework="streamlit")
 
 # 1. Knowledge Base
-kb = KnowledgeBase(
-    app,
-    deployment_config=config,
-    app_config="my-app",
-    kb_props=KnowledgeBaseProps(
-        chunking=ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=10),
-        description="Documents for the agent",
-    ),
-)
+kb = KnowledgeBase(app, deployment_config=config, app_config="my-app")
 
-# 2. AgentCore Runtime (with KB attached)
+# 2. AgentCore Runtime (KB automatically wired via KnowledgeBaseConfig)
 agent = AgentCore(
     app,
     "AgentStack",
     props=AgentCoreProperties(
         runtime_name="my_agent",
-        agent=CustomAgent(
-            agent_code_directory=DEFAULT_AGENT_CODE_DIR,
-            environment_variables=kb.environment_variables,
-        ),
+        knowledge_base=KnowledgeBaseConfig(knowledge_base=kb),
     ),
     env=cdk_env,
 )
-kb.grant_retrieve(agent.runtime_role)
 
 # 3. WebApp — pass the runtime ARN and grant invoke permissions
 webapp = WebApp(
@@ -72,9 +56,13 @@ app.synth()
 
 This:
 
-- Passes `AGENTCORE_RUNTIME_ARN` into the Fargate container automatically
+- Creates a Knowledge Base with auto-sync from S3
+- Deploys an AgentCore runtime with the built-in agent template
+- `KnowledgeBaseConfig` automatically injects `KB_ID`/`KB_SSM_PARAMETER` env
+  vars and grants `bedrock:Retrieve` to the runtime role
+- Passes `AGENTCORE_RUNTIME_ARN` into the Fargate container via
+  `agent.environment_variables`
 - Grants the task role `bedrock-agentcore:InvokeAgentRuntime` permission
-- Grants the AgentCore runtime role `bedrock:Retrieve` on the Knowledge Base
 
 ## Application Code
 
@@ -168,8 +156,11 @@ locally with `idea-app smoke-test` against a deployed AgentCore runtime.
 
 7. **Destroy the example AgentCore and Knowledge base stacks** (from the repo root):
 
-    Note: It may throw an error during deletion of the S3 bucket and you will need to delete manually in Cloudformation as versioning information may stop deletion of the bucket 
-    and cause a failed stack state. The knowledge base stack implements auto_delete_objects by default when retain_on_delete is set to False.
+    Note: It may throw an error during deletion of the S3 bucket and you will
+    need to delete manually in Cloudformation as versioning information may stop
+    deletion of the bucket and cause a failed stack state. The knowledge base
+    stack implements auto_delete_objects by default when retain_on_delete is set
+    to False.
 
     ```bash
     cdk destroy --all --app "python examples/agent_with_kbase.py"
