@@ -1,6 +1,6 @@
 [project]
 name = "gds-idea-cdk-constructs"
-version = "0.4.1"
+version = "0.4.2"
 description = "A repo for commonly used constructs in the team."
 readme = "README.md"
 authors = [
@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "aws-cdk-aws-bedrock-agentcore-alpha>=2.251.0a0",
     "aws-cdk-lib>=2.243.0",
     "boto3>=1.35.0",
 ]
@@ -77,6 +78,7 @@ exclude = [
     ".pytest_cache",
     ".venv",
     "venv",
+    "src/gds_idea_cdk_constructs/agent_core/agent_template",
 ]
 
 [tool.ruff.lint]
