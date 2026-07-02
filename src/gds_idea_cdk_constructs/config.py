@@ -40,6 +40,13 @@ class DeploymentEnvironment(Enum):
         """Get lowercase environment name for display/logging."""
         return self.name.lower()
 
+    @property
+    def short_name(self) -> str:
+        """Get short lowercase environment name for display/logging."""
+        return {"development": "dev", "production": "prod", "testing": "test"}[
+            self.friendly_name
+        ]
+
 
 @dataclass
 class DeploymentConfig:
