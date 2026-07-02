@@ -89,14 +89,18 @@ class WebApp(Stack):
                 environment, grants the task role sts:AssumeRole permission on
                 the cross-account role and injects CROSS_ACCOUNT_ROLE_ARN as a
                 container environment variable.
-            enable_usage_dashboard: Create a CloudWatch usage dashboard (ALB
-                requests + active users) for this app. Defaults to True. Reads this
-                stack's own load balancer and container log group — no cross-account
-                configuration required.
-            dashboard_show_user_emails: When True, the active-users widget lists
-                individual user emails and their last login. When False (default), it
-                shows an aggregate distinct-user count only. Ignored when
-                enable_usage_dashboard is False.
+            enable_usage_dashboard: When ``True`` (default), create a standard
+                CloudWatch usage dashboard for this app. See
+                :class:`AppUsageDashboard` for the widgets included.
+            dashboard_show_user_emails: When ``True``, the Active users widget
+                on the usage dashboard lists individual user emails and their
+                last login time. When ``False`` (default), it shows an
+                aggregate distinct-user count. Ignored when
+                ``enable_usage_dashboard`` is ``False``.
+            dashboard_extra_widgets: Optional additional CloudWatch widgets to
+                append to the usage dashboard, after the standard Successful
+                sign-ins, Active users and Requests widgets. Ignored when
+                ``enable_usage_dashboard`` is ``False``.
 
         Example:
             Basic usage with Cognito authentication::

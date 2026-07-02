@@ -23,13 +23,18 @@ from constructs import Construct
 class AppUsageDashboard(Construct):
     """A CloudWatch dashboard summarising usage for a single WebApp.
 
-    Widgets:
+    Widgets (in display order):
 
-    * **Requests** — ALB ``RequestCount`` (Sum, 5-minute periods); dimensions are
-      derived from the load balancer object.
-    * **Active users** — by default a privacy-preserving distinct-user count from
-      the authentication logs. When ``show_user_emails`` is ``True`` this becomes a
-      per-user table of last login (exposes individual emails — opt-in).
+    * **Successful sign-ins** — ALB ``ELBAuthSuccess`` (Sum), shown as a single
+      value that follows the dashboard's selected time range. Reflects the
+      number of successful Cognito authentications handled by the load
+      balancer.
+    * **Active users** — by default a privacy-preserving distinct-user count
+      from the authentication logs. When ``show_user_emails`` is ``True`` this
+      becomes a per-user table of last login (exposes individual emails —
+      opt-in).
+    * **Requests** — ALB ``RequestCount`` (Sum, 5-minute periods); dimensions
+      are derived from the load balancer object.
 
     :param app_name: Logical app name, used to build the dashboard name.
     :param load_balancer: The application's load balancer (supplied by WebApp).
@@ -41,8 +46,10 @@ class AppUsageDashboard(Construct):
         last login. When ``False`` (default), show an aggregate distinct-user count.
     :param auth_filter_pattern: Logs Insights ``filter`` predicate identifying
         authentication events. Override if an app's log format differs.
-    :param extra_widgets: Additional widgets appended after the standard Requests
-        and Active users widgets. Usestring only, no code changes.
+    :param extra_widgets: Additional widgets appended after the standard
+        Successful sign-ins, Active users and Requests widgets. Pass via
+        ``WebApp``'s ``dashboard_extra_widgets`` parameter — no changes to this
+        construct required.
     """
 
     def __init__(
@@ -120,7 +127,27 @@ class AppUsageDashboard(Construct):
                 height=6,
             )
 
-        dashboard.add_widgets(requests_widget, active_users_widget)
+        signin_widget = cloudwatch.SingleValueWidget(
+            title="Successful sign-ins",
+            metrics=[
+                cloudwatch.Metric(
+                    namespace="AWS/ApplicationELB",
+                    metric_name="ELBAuthSuccess",
+                    dimensions_map={
+                        "LoadBalancer": load_balancer.load_balancer_full_name,
+                    },
+                    statistic="Sum",
+                    period=Duration.days(
+                        7
+                    ),  # ignored when set_period_to_time_range=True
+                )
+            ],
+            width=12,
+            height=6,
+            set_period_to_time_range=True,
+        )
+
+        dashboard.add_widgets(signin_widget, active_users_widget, requests_widget)
         if extra_widgets:
             dashboard.add_widgets(*extra_widgets)
         self.dashboard = dashboard
