@@ -19,8 +19,8 @@ If you don't have uv installed, install it following the [official instructions]
 ### 2. Clone the Repository
 
 ```bash
-git clone https://github.com/co-cddo/gds-idea-cdk-constructs.git
-cd gds-idea-cdk-constructs
+git clone https://github.com/co-cddo/gds-idea-cdk-constructs-new.git
+cd gds-idea-cdk-constructs-new
 ```
 
 ### 3. Install Dependencies
@@ -131,19 +131,15 @@ If you're adding new features or changing APIs:
 - Add examples to the relevant documentation files
 - Update README.md if needed
 
-### 4. Bump the Version
+### 4. Version Bumping
 
-**Important**: All PRs must bump the version in `pyproject.toml`. We follow [Semantic Versioning](https://semver.org/):
+Versioning is handled automatically via git tags. When your PR is merged to `main`, the release workflow determines the bump level from PR labels:
 
-- **MAJOR** version for incompatible API changes
-- **MINOR** version for backwards-compatible new features
-- **PATCH** version for backwards-compatible bug fixes
+- **`bump:major`** - Incompatible API changes
+- **`bump:minor`** - Backwards-compatible new features
+- **(default)** - Patch version bump for bug fixes
 
-```toml
-# In pyproject.toml
-[project]
-version = "0.2.1"  # Bump this appropriately
-```
+Add the appropriate label to your PR before merging. If no bump label is set, a patch bump is applied automatically.
 
 ### 5. Commit Your Changes
 
@@ -176,9 +172,9 @@ Then create a pull request on GitHub targeting the `main` branch.
 
 When you create a pull request, the following checks run automatically:
 
-1. **Version Check** - Ensures version in `pyproject.toml` has been bumped
-2. **Lint** - Runs `ruff check` and `ruff format --check`
-3. **Test** - Runs pytest with coverage on Python 3.12, 3.13, and 3.14
+1. **Lint** - Runs `ruff check` and `ruff format --check`
+2. **Test** - Runs pytest across Python 3.11, 3.12, 3.13, and 3.14
+3. **Build** - Builds the package with `uv build`
 
 All checks must pass before the PR can be merged.
 
@@ -186,12 +182,14 @@ All checks must pass before the PR can be merged.
 
 When changes are merged to `main`:
 
-1. **Create Release** - Automatically creates a GitHub release with:
-   - Git tag matching version in `pyproject.toml`
-   - Auto-generated release notes
-   - Built distribution packages attached
+1. **Auto-tag** - Determines bump level from PR labels (`bump:major`, `bump:minor`, or patch by default) and creates a git tag
+2. **Publish** - Builds the package and publishes to the [GDS IDEA PyPI index](https://co-cddo.github.io/gds-idea-pypi/)
 
-2. **Deploy Documentation** - Builds and deploys documentation to GitHub Pages
+### Deploy Docs Workflow
+
+When changes are merged to `main`:
+
+- Builds and deploys documentation to GitHub Pages
 
 ## Project Structure
 
@@ -251,8 +249,8 @@ For CDK stack tests, use CDK Assertions:
 
 ## Getting Help
 
-- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/co-cddo/gds-idea-cdk-constructs/issues)
-- **Documentation**: Check the [project documentation](https://co-cddo.github.io/gds-idea-cdk-constructs/)
+- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/co-cddo/gds-idea-cdk-constructs-new/issues)
+- **Documentation**: Check the [project documentation](https://co-cddo.github.io/gds-idea-cdk-constructs-new/)
 - **Code Review**: Feel free to ask questions in your pull request
 
 ## Code of Conduct

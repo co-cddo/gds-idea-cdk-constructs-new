@@ -12,16 +12,16 @@ We welcome contributions of all kinds:
 
 ## Quick Links
 
-- [Full Contributing Guide](https://github.com/co-cddo/gds-idea-cdk-constructs/blob/main/CONTRIBUTING.md) - Complete guide for developers
-- [GitHub Issues](https://github.com/co-cddo/gds-idea-cdk-constructs/issues) - Report bugs or request features
-- [GitHub Discussions](https://github.com/co-cddo/gds-idea-cdk-constructs/discussions) - Ask questions and discuss ideas
+- [Full Contributing Guide](https://github.com/co-cddo/gds-idea-cdk-constructs-new/blob/main/CONTRIBUTING.md) - Complete guide for developers
+- [GitHub Issues](https://github.com/co-cddo/gds-idea-cdk-constructs-new/issues) - Report bugs or request features
+- [GitHub Discussions](https://github.com/co-cddo/gds-idea-cdk-constructs-new/discussions) - Ask questions and discuss ideas
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/co-cddo/gds-idea-cdk-constructs.git
-cd gds-idea-cdk-constructs
+git clone https://github.com/co-cddo/gds-idea-cdk-constructs-new.git
+cd gds-idea-cdk-constructs-new
 
 # Install dependencies
 uv sync --all-groups
@@ -41,8 +41,8 @@ uv run mkdocs serve
 1. **Fork and clone** the repository
 2. **Create a branch** for your changes (`git checkout -b feature/my-feature`)
 3. **Make your changes** with tests and documentation
-4. **Bump the version** in `pyproject.toml`
-5. **Push and create a PR** targeting the `main` branch
+4. **Push and create a PR** targeting the `main` branch
+5. **Add a bump label** (`bump:major`, `bump:minor`, or default patch) to the PR
 
 ## Code Quality
 
@@ -54,10 +54,10 @@ We use:
 
 All PRs must pass:
 
-- ✅ Version bump check
 - ✅ Linting (`ruff check`)
 - ✅ Formatting (`ruff format --check`)
-- ✅ Tests with coverage (`pytest --cov`)
+- ✅ Tests (`pytest`)
+- ✅ Build (`uv build`)
 
 ## Documentation
 
@@ -67,8 +67,8 @@ All PRs must pass:
 
 ## Need Help?
 
-- Check the [full contributing guide](https://github.com/co-cddo/gds-idea-cdk-constructs/blob/main/CONTRIBUTING.md)
-- Open a [GitHub Discussion](https://github.com/co-cddo/gds-idea-cdk-constructs/discussions)
+- Check the [full contributing guide](https://github.com/co-cddo/gds-idea-cdk-constructs-new/blob/main/CONTRIBUTING.md)
+- Open a [GitHub Discussion](https://github.com/co-cddo/gds-idea-cdk-constructs-new/discussions)
 - Ask questions in your PR - we're happy to help!
 
 Thank you for contributing.
