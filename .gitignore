@@ -91,3 +91,10 @@ dmypy.json
 
 # Compiled mkdocs site
 site
+
+# Added by idea-app adopt
+.pyright/
+.envrc
+**/.DS_Store
+src/*/_version.py
+*.new
