@@ -1,8 +1,8 @@
 site_name: gds-idea-cdk-constructs
 site_description: Reusable AWS CDK constructs for deploying containerized web applications
-site_url: https://co-cddo.github.io/gds-idea-cdk-constructs/
-repo_url: https://github.com/co-cddo/gds-idea-cdk-constructs
-repo_name: co-cddo/gds-idea-cdk-constructs
+site_url: https://co-cddo.github.io/gds-idea-cdk-constructs-new/
+repo_url: https://github.com/co-cddo/gds-idea-cdk-constructs-new
+repo_name: co-cddo/gds-idea-cdk-constructs-new
 
 theme:
   name: material

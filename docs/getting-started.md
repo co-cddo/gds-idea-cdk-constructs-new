@@ -25,10 +25,10 @@ The `DeploymentConfig` class automatically looks up these resources based on you
 
 ## Installation
 
-Install from github:
+Install from the GDS IDEA PyPI index:
 
 ```bash
-uv add git+https://github.com/co-cddo/gds-idea-cdk-constructs
+uv add gds-idea-cdk-constructs --index gds-idea=https://co-cddo.github.io/gds-idea-pypi/simple/
 ```
 
 
@@ -47,7 +47,7 @@ cdk init app --language python
 Install the library:
 
 ```bash
-uv add git+https://github.com/co-cddo/gds-idea-cdk-constructs
+uv add gds-idea-cdk-constructs --index gds-idea=https://co-cddo.github.io/gds-idea-pypi/simple/
 ```
 
 ### 2. Create Your Application Code

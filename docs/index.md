@@ -4,8 +4,8 @@ A Python library providing reusable AWS CDK constructs for deploying containeriz
 
 ## Note
 
-It is not designed to be used directly but it is a dependency in the [app templates repo](https://github.com/co-cddo/gds-idea-app-templates)
-For instructions on usage please see the docs for gds-idea-app-templates.
+It is not designed to be used directly but it is a dependency managed by [gds-idea-app-kit](https://github.com/co-cddo/gds-idea-app-kit).
+For instructions on usage please see the docs for gds-idea-app-kit.
 
 ## Overview
 
@@ -31,7 +31,7 @@ Before using this library, ensure you have:
 ### Installation
 
 ```bash
-uv add git+https://github.com/co-cddo/gds-idea-cdk-constructs
+uv add gds-idea-cdk-constructs --index gds-idea=https://co-cddo.github.io/gds-idea-pypi/simple/
 ```
 
 ### Basic Example
