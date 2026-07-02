@@ -1,25 +1,26 @@
-# .pre-commit-config.yaml
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.14.0
-    hooks:
-      # Run the linter.
-      - id: ruff-check
-        args: [--fix]
-      # Run the formatter.
-      - id: ruff-format
-
-  # --- Basic hygiene hooks ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v5.0.0
     hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
       - id: end-of-file-fixer
       - id: trailing-whitespace
-      - id: check-yaml
-      - id: check-json
-      - id: check-toml
-      - id: check-added-large-files
-      - id: name-tests-test
-        args: ["--pytest-test-first"]
-      - id: detect-aws-credentials
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets
+        entry: gitleaks detect --source . --redact --verbose
+        language: system
+        pass_filenames: false

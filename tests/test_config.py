@@ -69,6 +69,13 @@ def test_deployment_environment_friendly_name():
     assert DeploymentEnvironment.TESTING.friendly_name == "testing"
 
 
+def test_deployment_environment_short_name():
+    """Test short_name property returns expected short codes."""
+    assert DeploymentEnvironment.DEVELOPMENT.short_name == "dev"
+    assert DeploymentEnvironment.PRODUCTION.short_name == "prod"
+    assert DeploymentEnvironment.TESTING.short_name == "test"
+
+
 # DeploymentConfig.from_dict tests
 
 
