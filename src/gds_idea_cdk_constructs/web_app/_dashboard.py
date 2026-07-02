@@ -130,16 +130,10 @@ class AppUsageDashboard(Construct):
         signin_widget = cloudwatch.SingleValueWidget(
             title="Successful sign-ins",
             metrics=[
-                cloudwatch.Metric(
-                    namespace="AWS/ApplicationELB",
-                    metric_name="ELBAuthSuccess",
-                    dimensions_map={
-                        "LoadBalancer": load_balancer.load_balancer_full_name,
-                    },
+                load_balancer.metrics.custom(
+                    "ELBAuthSuccess",
                     statistic="Sum",
-                    period=Duration.days(
-                        7
-                    ),  # ignored when set_period_to_time_range=True
+                    period=Duration.days(7),
                 )
             ],
             width=12,

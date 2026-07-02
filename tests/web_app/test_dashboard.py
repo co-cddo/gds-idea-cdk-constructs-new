@@ -92,3 +92,17 @@ def test_extra_widgets_are_appended():
         )
     )
     assert marker in body
+
+
+def test_signin_widget_present():
+    body = _body(_synth())
+    assert "Successful sign-ins" in body
+    assert "ELBAuthSuccess" in body
+    assert "AWS/ApplicationELB" in body
+
+
+def test_signin_widget_appears_before_active_users_and_requests():
+    # Ordering is part of the public contract described in the docstring.
+    body = _body(_synth())
+    assert body.index("Successful sign-ins") < body.index("Active users")
+    assert body.index("Active users") < body.index("Requests")
