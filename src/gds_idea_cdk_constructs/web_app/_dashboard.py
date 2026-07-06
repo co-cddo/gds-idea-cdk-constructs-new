@@ -29,19 +29,32 @@ class AppUsageDashboard(Construct):
     value that follows the dashboard's selected time range. Reflects the
     number of successful Cognito authentications handled by the load
     balancer.
-    * **HTTP errors** — ALB error responses split across the two axes CloudWatch
-    reports them on: *who generated the response* (ALB itself vs. your app)
-    and *what class of error* (4xx vs. 5xx). All four series are shown on
-    one chart (Sum, 5-minute periods) so a viewer can distinguish at a
-    glance between an app crash (``Target 5xx``), an unreachable backend
-    (``ELB 5xx``), a rejected request from the app (``Target 4xx``), and a
-    bad or unauthenticated request stopped at the ALB (``ELB 4xx``).
+    * **Successful sign-ins over time** — the same ``ELBAuthSuccess`` metric
+    as above, plotted as a line at 1-hour ``Sum`` periods so trends across
+    the day or week are visible at a glance.
     * **Active users** — by default a privacy-preserving distinct-user count
     from the authentication logs. When ``show_user_emails`` is ``True`` this
     becomes a per-user table of last login (exposes individual emails —
     opt-in).
+    * **Most active users** — when ``show_user_emails`` is ``True``, a bar
+    chart of authenticated request counts per user email over the
+    dashboard's selected time range, sorted by activity. When ``False``
+    (default), the widget is replaced with a placeholder explaining that
+    the view is hidden to avoid exposing individual emails and how to
+    enable it.
+    * **Target response time** — ALB ``TargetResponseTime`` (Average, p95, p99
+    over 5-minute periods) on one chart, so both typical latency and the
+    slow tail are visible together.
     * **Requests** — ALB ``RequestCount`` (Sum, 5-minute periods); dimensions
     are derived from the load balancer object.
+    * **HTTP errors** — ALB error responses split across the two axes
+    CloudWatch reports them on: *who generated the response* (ALB itself
+    vs. your app) and *what class of error* (4xx vs. 5xx). All four series
+    are shown on one chart (Sum, 5-minute periods) so a viewer can
+    distinguish at a glance between an app crash (``Target 5xx``), an
+    unreachable backend (``ELB 5xx``), a rejected request from the app
+    (``Target 4xx``), and a bad or unauthenticated request stopped at the
+    ALB (``ELB 4xx``).
 
     :param app_name: Logical app name, used to build the dashboard name.
     :param load_balancer: The application's load balancer (supplied by WebApp).
@@ -49,14 +62,18 @@ class AppUsageDashboard(Construct):
     :param stage: Optional environment (``"dev"``/``"prod"``) to disambiguate the
         dashboard name when environments share an account.
     :param dashboard_name: Explicit name; overrides the ``app_name``/``stage`` default.
-    :param show_user_emails: When ``True``, list individual user emails and their
-        last login. When ``False`` (default), show an aggregate distinct-user count.
+    :param show_user_emails: When ``True``, the Active users widget lists
+        individual user emails and their last login, and the Most active
+        users bar chart is rendered. When ``False`` (default), Active users
+        shows an aggregate distinct-user count and Most active users is
+        replaced with a placeholder message.
     :param auth_filter_pattern: Logs Insights ``filter`` predicate identifying
         authentication events. Override if an app's log format differs.
     :param extra_widgets: Additional widgets appended after the standard
-        Successful sign-ins, HTTP errors, Active users and Requests widgets.
-        Pass via ``WebApp``'s ``dashboard_extra_widgets`` parameter — no changes
-        to this construct required.
+        Successful sign-ins, Successful sign-ins over time, Active users,
+        Most active users, Target response time, Requests and HTTP errors
+        widgets. Pass via ``WebApp``'s ``dashboard_extra_widgets`` parameter —
+        no changes to this construct required.
     """
 
     def __init__(
@@ -134,6 +151,33 @@ class AppUsageDashboard(Construct):
                 height=6,
             )
 
+        if show_user_emails:
+            most_active_users_widget = cloudwatch.LogQueryWidget(
+                title="Most active users",
+                log_group_names=log_group_names,
+                view=cloudwatch.LogQueryVisualizationType.BAR,
+                query_lines=[
+                    "fields @timestamp, @message",
+                    f"filter {auth_filter_pattern}",
+                    "parse @message /email=(?<email>[^,]+)/",
+                    "stats count() as requests by email",
+                    "sort requests desc",
+                ],
+                width=12,
+                height=6,
+            )
+        else:
+            most_active_users_widget = cloudwatch.TextWidget(
+                markdown=(
+                    "### Most active users\n\n"
+                    "_Hidden by default to avoid exposing individual user emails._\n\n"
+                    "Enable by setting `dashboard_show_user_emails=True` on the "
+                    "`WebApp` construct."
+                ),
+                width=12,
+                height=6,
+            )
+
         signin_widget = cloudwatch.SingleValueWidget(
             title="Successful sign-ins",
             metrics=[
@@ -146,6 +190,20 @@ class AppUsageDashboard(Construct):
             width=12,
             height=6,
             set_period_to_time_range=True,
+        )
+
+        signin_trend_widget = cloudwatch.GraphWidget(
+            title="Successful sign-ins over time",
+            left=[
+                load_balancer.metrics.custom(
+                    "ELBAuthSuccess",
+                    statistic="Sum",
+                    period=Duration.hours(1),
+                    label="Sign-ins per hour",
+                )
+            ],
+            width=12,
+            height=6,
         )
 
         response_time_widget = cloudwatch.GraphWidget(
@@ -206,9 +264,11 @@ class AppUsageDashboard(Construct):
 
         dashboard.add_widgets(
             signin_widget,
+            signin_trend_widget,
             active_users_widget,
-            requests_widget,
+            most_active_users_widget,
             response_time_widget,
+            requests_widget,
             errors_widget,
         )
         if extra_widgets:

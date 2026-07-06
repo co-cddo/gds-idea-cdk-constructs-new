@@ -132,5 +132,33 @@ def test_http_errors_widget_present():
 
 def test_docstring_lists_all_widgets():
     doc = AppUsageDashboard.__doc__ or ""
-    for title in ("Successful sign-ins", "HTTP errors", "Active users", "Requests"):
+    for title in (
+        "Successful sign-ins",
+        "Successful sign-ins over time",
+        "Active users",
+        "Most active users",
+        "Target response time",
+        "Requests",
+        "HTTP errors",
+    ):
         assert title in doc, f"{title!r} missing from AppUsageDashboard docstring"
+
+
+def test_signin_trend_widget_present():
+    body = _body(_synth())
+    assert "Successful sign-ins over time" in body
+    assert "ELBAuthSuccess" in body
+
+
+def test_most_active_users_query_only_when_opted_in():
+    body_default = _body(_synth())
+    assert "count() as requests by email" not in body_default
+
+    body_optin = _body(_synth(show_user_emails=True))
+    assert "count() as requests by email" in body_optin
+    assert "Most active users" in body_optin
+
+
+def test_most_active_users_shows_placeholder_by_default():
+    body = _body(_synth())
+    assert "Hidden by default to avoid exposing" in body

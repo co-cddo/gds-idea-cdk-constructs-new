@@ -94,13 +94,16 @@ class WebApp(Stack):
                 :class:`AppUsageDashboard` for the widgets included.
             dashboard_show_user_emails: When ``True``, the Active users widget
                 on the usage dashboard lists individual user emails and their
-                last login time. When ``False`` (default), it shows an
-                aggregate distinct-user count. Ignored when
+                last login time, and the Most active users bar chart is
+                rendered. When ``False`` (default), Active users shows an
+                aggregate distinct-user count and Most active users is
+                replaced with a placeholder message. Ignored when
                 ``enable_usage_dashboard`` is ``False``.
             dashboard_extra_widgets: Optional additional CloudWatch widgets to
                 append to the usage dashboard, after the standard Successful
-                sign-ins, HTTP errors, Active users and Requests widgets. Ignored
-                when ``enable_usage_dashboard`` is ``False``.
+                sign-ins, Successful sign-ins over time, Active users, Most
+                active users, Target response time, Requests and HTTP errors
+                widgets. Ignored when ``enable_usage_dashboard`` is ``False``.
 
         Example:
             Basic usage with Cognito authentication::
