@@ -99,8 +99,8 @@ class WebApp(Stack):
                 ``enable_usage_dashboard`` is ``False``.
             dashboard_extra_widgets: Optional additional CloudWatch widgets to
                 append to the usage dashboard, after the standard Successful
-                sign-ins, Active users and Requests widgets. Ignored when
-                ``enable_usage_dashboard`` is ``False``.
+                sign-ins, HTTP errors, Active users and Requests widgets. Ignored
+                when ``enable_usage_dashboard`` is ``False``.
 
         Example:
             Basic usage with Cognito authentication::

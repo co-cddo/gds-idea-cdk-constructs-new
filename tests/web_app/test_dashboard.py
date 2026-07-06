@@ -106,3 +106,31 @@ def test_signin_widget_appears_before_active_users_and_requests():
     body = _body(_synth())
     assert body.index("Successful sign-ins") < body.index("Active users")
     assert body.index("Active users") < body.index("Requests")
+
+
+def test_response_time_widget_present():
+    body = _body(_synth())
+    assert "Target response time" in body
+    assert "TargetResponseTime" in body
+
+
+def test_http_errors_widget_present():
+    body = _body(_synth())
+
+    # Widget title
+    assert "HTTP errors" in body
+
+    # All four series show up as metrics on the widget
+    assert "HTTPCode_Target_5XX_Count" in body
+    assert "HTTPCode_ELB_5XX_Count" in body
+    assert "HTTPCode_Target_4XX_Count" in body
+    assert "HTTPCode_ELB_4XX_Count" in body
+
+    # Namespace is right (guards against these leaking under, say, AWS/NetworkELB)
+    assert "AWS/ApplicationELB" in body
+
+
+def test_docstring_lists_all_widgets():
+    doc = AppUsageDashboard.__doc__ or ""
+    for title in ("Successful sign-ins", "HTTP errors", "Active users", "Requests"):
+        assert title in doc, f"{title!r} missing from AppUsageDashboard docstring"

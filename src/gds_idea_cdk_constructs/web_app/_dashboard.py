@@ -26,15 +26,22 @@ class AppUsageDashboard(Construct):
     Widgets (in display order):
 
     * **Successful sign-ins** — ALB ``ELBAuthSuccess`` (Sum), shown as a single
-      value that follows the dashboard's selected time range. Reflects the
-      number of successful Cognito authentications handled by the load
-      balancer.
+    value that follows the dashboard's selected time range. Reflects the
+    number of successful Cognito authentications handled by the load
+    balancer.
+    * **HTTP errors** — ALB error responses split across the two axes CloudWatch
+    reports them on: *who generated the response* (ALB itself vs. your app)
+    and *what class of error* (4xx vs. 5xx). All four series are shown on
+    one chart (Sum, 5-minute periods) so a viewer can distinguish at a
+    glance between an app crash (``Target 5xx``), an unreachable backend
+    (``ELB 5xx``), a rejected request from the app (``Target 4xx``), and a
+    bad or unauthenticated request stopped at the ALB (``ELB 4xx``).
     * **Active users** — by default a privacy-preserving distinct-user count
-      from the authentication logs. When ``show_user_emails`` is ``True`` this
-      becomes a per-user table of last login (exposes individual emails —
-      opt-in).
+    from the authentication logs. When ``show_user_emails`` is ``True`` this
+    becomes a per-user table of last login (exposes individual emails —
+    opt-in).
     * **Requests** — ALB ``RequestCount`` (Sum, 5-minute periods); dimensions
-      are derived from the load balancer object.
+    are derived from the load balancer object.
 
     :param app_name: Logical app name, used to build the dashboard name.
     :param load_balancer: The application's load balancer (supplied by WebApp).
@@ -47,9 +54,9 @@ class AppUsageDashboard(Construct):
     :param auth_filter_pattern: Logs Insights ``filter`` predicate identifying
         authentication events. Override if an app's log format differs.
     :param extra_widgets: Additional widgets appended after the standard
-        Successful sign-ins, Active users and Requests widgets. Pass via
-        ``WebApp``'s ``dashboard_extra_widgets`` parameter — no changes to this
-        construct required.
+        Successful sign-ins, HTTP errors, Active users and Requests widgets.
+        Pass via ``WebApp``'s ``dashboard_extra_widgets`` parameter — no changes
+        to this construct required.
     """
 
     def __init__(
@@ -141,7 +148,69 @@ class AppUsageDashboard(Construct):
             set_period_to_time_range=True,
         )
 
-        dashboard.add_widgets(signin_widget, active_users_widget, requests_widget)
+        response_time_widget = cloudwatch.GraphWidget(
+            title="Target response time",
+            left=[
+                load_balancer.metrics.target_response_time(
+                    period=Duration.minutes(5),
+                    statistic="Average",
+                    label="avg",
+                ),
+                load_balancer.metrics.target_response_time(
+                    period=Duration.minutes(5),
+                    statistic="p95",
+                    label="p95",
+                ),
+                load_balancer.metrics.target_response_time(
+                    period=Duration.minutes(5),
+                    statistic="p99",
+                    label="p99",
+                ),
+            ],
+            left_y_axis=cloudwatch.YAxisProps(label="seconds", show_units=False),
+            width=12,
+            height=6,
+        )
+
+        errors_widget = cloudwatch.GraphWidget(
+            title="HTTP errors",
+            left=[
+                load_balancer.metrics.http_code_target(
+                    code=elbv2.HttpCodeTarget.TARGET_5XX_COUNT,
+                    period=Duration.minutes(5),
+                    statistic="Sum",
+                    label="Target 5xx (app crashes)",
+                ),
+                load_balancer.metrics.http_code_elb(
+                    code=elbv2.HttpCodeElb.ELB_5XX_COUNT,
+                    period=Duration.minutes(5),
+                    statistic="Sum",
+                    label="ELB 5xx (unreachable)",
+                ),
+                load_balancer.metrics.http_code_target(
+                    code=elbv2.HttpCodeTarget.TARGET_4XX_COUNT,
+                    period=Duration.minutes(5),
+                    statistic="Sum",
+                    label="Target 4xx (app rejected)",
+                ),
+                load_balancer.metrics.http_code_elb(
+                    code=elbv2.HttpCodeElb.ELB_4XX_COUNT,
+                    period=Duration.minutes(5),
+                    statistic="Sum",
+                    label="ELB 4xx (bad request / auth fail)",
+                ),
+            ],
+            width=24,
+            height=6,
+        )
+
+        dashboard.add_widgets(
+            signin_widget,
+            active_users_widget,
+            requests_widget,
+            response_time_widget,
+            errors_widget,
+        )
         if extra_widgets:
             dashboard.add_widgets(*extra_widgets)
         self.dashboard = dashboard
