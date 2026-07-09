@@ -13,6 +13,7 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
     aws_lambda as _lambda,
+    aws_logs as logs,
     aws_route53 as route53,
     aws_s3 as s3,
     aws_wafv2 as wafv2,
@@ -24,6 +25,7 @@ from constructs import Construct
 
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from ._auth_strategies import AUTH_STRATEGY_MAP, AuthType, IAuthStrategy
+from ._dashboard import AppUsageDashboard, DashboardProperties
 from .props import WebAppContainerProperties
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ class WebApp(Stack):
         task_role: iam.Role | None = None,
         disable_waf: bool = False,
         cross_account_access: bool = False,
+        enable_usage_dashboard: bool = True,
+        dashboard_properties: DashboardProperties | None = None,
     ) -> None:
         """Initialize a WebApp stack with containerized application infrastructure.
 
@@ -82,6 +86,14 @@ class WebApp(Stack):
                 environment, grants the task role sts:AssumeRole permission on
                 the cross-account role and injects CROSS_ACCOUNT_ROLE_ARN as a
                 container environment variable.
+            enable_usage_dashboard: When ``True`` (default), create a standard
+                CloudWatch usage dashboard for this app. See
+                :class:`AppUsageDashboard` for the widgets included and
+                :class:`DashboardProperties` for user-tunable knobs.
+            dashboard_properties: Optional overrides for the usage dashboard —
+                name, per-user email disclosure, log filter pattern and extra
+                widgets. See :class:`DashboardProperties`. Ignored when
+                ``enable_usage_dashboard`` is ``False``.
 
         Example:
             Basic usage with Cognito authentication::
@@ -170,6 +182,11 @@ class WebApp(Stack):
             )
         else:
             self._associate_waf()
+        self.usage_dashboard: AppUsageDashboard | None = None
+        if enable_usage_dashboard:
+            self._setup_usage_dashboard(
+                properties=dashboard_properties or DashboardProperties(),
+            )
 
         self._create_outputs()
 
@@ -318,13 +335,23 @@ class WebApp(Stack):
             task_role=self.task_role,
         )
 
+        self.log_group = logs.LogGroup(
+            self,
+            "ContainerLogGroup",
+            retention=logs.RetentionDays.ONE_YEAR,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.container = self.task_definition.add_container(
             "Container",
             image=ecs.ContainerImage.from_asset(
                 docker_context_path, file=dockerfile_path, platform=Platform.LINUX_AMD64
             ),
             port_mappings=[ecs.PortMapping(container_port=container_port)],
-            logging=ecs.LogDrivers.aws_logs(stream_prefix=f"{self.app_name}-app"),
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix=f"{self.app_name}-app",
+                log_group=self.log_group,
+            ),
             environment={
                 **self._auth_strategy.get_environment_variables(),
                 **self._cross_account_env,
@@ -432,3 +459,20 @@ class WebApp(Stack):
         )
 
         self._auth_strategy.create_outputs()
+
+    def _setup_usage_dashboard(
+        self,
+        *,
+        properties: DashboardProperties,
+    ) -> None:
+        """Create a CloudWatch usage dashboard for this app, reading its own ALB
+        metrics and container authentication logs."""
+        self.usage_dashboard = AppUsageDashboard(
+            self,
+            "UsageDashboard",
+            app_name=self.app_name,
+            stage=self.deployment_config.environment.name.lower(),
+            load_balancer=self.load_balancer,
+            log_groups=[self.log_group],
+            properties=properties,
+        )
