@@ -1,6 +1,7 @@
 import json
 
 import aws_cdk as cdk
+import pytest
 from aws_cdk import (
     aws_cloudwatch as cloudwatch,
     aws_elasticloadbalancingv2 as elbv2,
@@ -8,19 +9,24 @@ from aws_cdk import (
 )
 from aws_cdk.assertions import Template
 
-from gds_idea_cdk_constructs.web_app._dashboard import AppUsageDashboard
+from gds_idea_cdk_constructs.web_app._dashboard import (
+    AppUsageDashboard,
+    DashboardProperties,
+)
 
 
-def _synth(**dashboard_kwargs) -> Template:
-    """Synthesize a stack containing only AppUsageDashboard, with the ALB and log
-    group imported by attribute — no VPC lookup or Docker build required."""
+def _synth(**property_overrides) -> Template:
+    """Synthesize a stack containing only AppUsageDashboard.
+
+    Any keyword args are forwarded into a ``DashboardProperties``, so tests
+    can write ``_synth(show_user_emails=True)`` as before.
+    """
     app = cdk.App()
     stack = cdk.Stack(
         app,
         "TestStack",
         env=cdk.Environment(account="111111111111", region="eu-west-2"),
     )
-
     alb = elbv2.ApplicationLoadBalancer.from_application_load_balancer_attributes(
         stack,
         "Alb",
@@ -39,7 +45,7 @@ def _synth(**dashboard_kwargs) -> Template:
         stage="dev",
         load_balancer=alb,
         log_groups=[log_group],
-        **dashboard_kwargs,
+        properties=DashboardProperties(**property_overrides),
     )
     return Template.from_stack(stack)
 
@@ -131,6 +137,8 @@ def test_http_errors_widget_present():
 
 
 def test_docstring_lists_all_widgets():
+    """The class docstring's widget list must stay in sync with what
+    the construct actually renders."""
     doc = AppUsageDashboard.__doc__ or ""
     for title in (
         "Successful sign-ins",
@@ -162,3 +170,42 @@ def test_most_active_users_query_only_when_opted_in():
 def test_most_active_users_shows_placeholder_by_default():
     body = _body(_synth())
     assert "Hidden by default to avoid exposing" in body
+
+
+def test_empty_log_groups_raises():
+    app = cdk.App()
+    stack = cdk.Stack(
+        app,
+        "TestStack",
+        env=cdk.Environment(account="111111111111", region="eu-west-2"),
+    )
+    alb = elbv2.ApplicationLoadBalancer.from_application_load_balancer_attributes(
+        stack,
+        "Alb",
+        load_balancer_arn=(
+            "arn:aws:elasticloadbalancing:eu-west-2:111111111111:"
+            "loadbalancer/app/example/0123456789abcdef"
+        ),
+        security_group_id="sg-0123456789abcdef0",
+    )
+    with pytest.raises(
+        ValueError, match=r"log_groups must contain at least one log group"
+    ):
+        AppUsageDashboard(
+            stack,
+            "UsageDashboard",
+            app_name="example",
+            stage="dev",
+            load_balancer=alb,
+            log_groups=[],
+            properties=DashboardProperties(),
+        )
+
+
+def test_auth_filter_pattern_override_flows_through():
+    """Custom filter pattern set on DashboardProperties should appear in the
+    generated Logs Insights queries."""
+    body = _body(_synth(auth_filter_pattern="@message like /LOGIN_OK/"))
+    assert "@message like /LOGIN_OK/" in body
+    # And the default is gone
+    assert "User authenticated" not in body

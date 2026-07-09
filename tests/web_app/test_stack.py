@@ -1,16 +1,20 @@
 """Unit tests for WebApp stack."""
 
+import json
+
 import pytest
 from aws_cdk import (
     App,
     Environment as CdkEnvironment,
     Stack,
+    aws_cloudwatch as cloudwatch,
     aws_iam as iam,
 )
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.config import DeploymentConfig, DeploymentEnvironment
 from gds_idea_cdk_constructs.web_app._auth_strategies import AuthType
+from gds_idea_cdk_constructs.web_app._dashboard import DashboardProperties
 from gds_idea_cdk_constructs.web_app.props import WebAppContainerProperties
 from gds_idea_cdk_constructs.web_app.stack import WebApp
 from tests.conftest import TEST_CONFIG
@@ -721,3 +725,88 @@ def test_web_app_stack_cross_account_access_true_in_prod(
             if stmt.get("Action") == "sts:AssumeRole":
                 resource = stmt.get("Resource", "")
                 assert "assume_role_for_development_account" not in str(resource)
+
+
+def test_dashboard_enabled_by_default(cdk_app, deployment_config, app_config):
+    """Default WebApp construction should synthesise a dashboard resource
+    without needing any dashboard-related kwargs."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+    )
+    Template.from_stack(stack).resource_count_is("AWS::CloudWatch::Dashboard", 1)
+
+
+def test_dashboard_can_be_disabled(cdk_app, deployment_config, app_config):
+    """Setting enable_usage_dashboard=False should skip dashboard creation."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        enable_usage_dashboard=False,
+    )
+    Template.from_stack(stack).resource_count_is("AWS::CloudWatch::Dashboard", 0)
+
+
+def test_dashboard_properties_flow_through_to_dashboard(
+    cdk_app, deployment_config, app_config
+):
+    """Values on DashboardProperties should reach the synthesised dashboard,
+    proving the WebApp → AppUsageDashboard wiring works end to end."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        dashboard_properties=DashboardProperties(
+            show_user_emails=True,
+            auth_filter_pattern="@message like /LOGIN_OK/",
+            extra_widgets=[
+                cloudwatch.TextWidget(
+                    markdown="EXTRA_WIDGET_MARKER", width=24, height=1
+                )
+            ],
+        ),
+    )
+    body = json.dumps(Template.from_stack(stack).to_json(), ensure_ascii=False)
+
+    # show_user_emails=True → per-email widgets rendered
+    assert "last_login by email" in body
+    assert "Most active users" in body
+
+    # Custom filter pattern reached the Logs Insights query
+    assert "@message like /LOGIN_OK/" in body
+    # …and the default pattern is gone
+    assert "User authenticated" not in body
+
+    # Extra widget appended
+    assert "EXTRA_WIDGET_MARKER" in body
+
+
+def test_default_dashboard_hides_user_emails(cdk_app, deployment_config, app_config):
+    """Privacy contract: default WebApp construction must not surface
+    individual user emails in either the Active users or Most active users
+    widget."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+    )
+    body = json.dumps(Template.from_stack(stack).to_json(), ensure_ascii=False)
+
+    # No per-user last-login table
+    assert "last_login by email" not in body
+    # No per-user request-count query
+    assert "count() as requests by email" not in body

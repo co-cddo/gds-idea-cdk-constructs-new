@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Sequence
 from pathlib import Path
 
 from aws_cdk import (
@@ -9,7 +8,6 @@ from aws_cdk import (
     RemovalPolicy,
     Stack,
     aws_certificatemanager as acm,
-    aws_cloudwatch as cloudwatch,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elbv2,
@@ -27,7 +25,7 @@ from constructs import Construct
 
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from ._auth_strategies import AUTH_STRATEGY_MAP, AuthType, IAuthStrategy
-from ._dashboard import AppUsageDashboard
+from ._dashboard import AppUsageDashboard, DashboardProperties
 from .props import WebAppContainerProperties
 
 logger = logging.getLogger(__name__)
@@ -51,8 +49,7 @@ class WebApp(Stack):
         disable_waf: bool = False,
         cross_account_access: bool = False,
         enable_usage_dashboard: bool = True,
-        dashboard_show_user_emails: bool = False,
-        dashboard_extra_widgets: Sequence[cloudwatch.IWidget] | None = None,
+        dashboard_properties: DashboardProperties | None = None,
     ) -> None:
         """Initialize a WebApp stack with containerized application infrastructure.
 
@@ -91,19 +88,12 @@ class WebApp(Stack):
                 container environment variable.
             enable_usage_dashboard: When ``True`` (default), create a standard
                 CloudWatch usage dashboard for this app. See
-                :class:`AppUsageDashboard` for the widgets included.
-            dashboard_show_user_emails: When ``True``, the Active users widget
-                on the usage dashboard lists individual user emails and their
-                last login time, and the Most active users bar chart is
-                rendered. When ``False`` (default), Active users shows an
-                aggregate distinct-user count and Most active users is
-                replaced with a placeholder message. Ignored when
+                :class:`AppUsageDashboard` for the widgets included and
+                :class:`DashboardProperties` for user-tunable knobs.
+            dashboard_properties: Optional overrides for the usage dashboard —
+                name, per-user email disclosure, log filter pattern and extra
+                widgets. See :class:`DashboardProperties`. Ignored when
                 ``enable_usage_dashboard`` is ``False``.
-            dashboard_extra_widgets: Optional additional CloudWatch widgets to
-                append to the usage dashboard, after the standard Successful
-                sign-ins, Successful sign-ins over time, Active users, Most
-                active users, Target response time, Requests and HTTP errors
-                widgets. Ignored when ``enable_usage_dashboard`` is ``False``.
 
         Example:
             Basic usage with Cognito authentication::
@@ -195,8 +185,7 @@ class WebApp(Stack):
         self.usage_dashboard: AppUsageDashboard | None = None
         if enable_usage_dashboard:
             self._setup_usage_dashboard(
-                show_user_emails=dashboard_show_user_emails,
-                extra_widgets=dashboard_extra_widgets,
+                properties=dashboard_properties or DashboardProperties(),
             )
 
         self._create_outputs()
@@ -349,7 +338,8 @@ class WebApp(Stack):
         self.log_group = logs.LogGroup(
             self,
             "ContainerLogGroup",
-            retention=logs.RetentionDays.ONE_MONTH,
+            retention=logs.RetentionDays.ONE_YEAR,
+            removal_policy=RemovalPolicy.DESTROY,
         )
 
         self.container = self.task_definition.add_container(
@@ -470,7 +460,11 @@ class WebApp(Stack):
 
         self._auth_strategy.create_outputs()
 
-    def _setup_usage_dashboard(self, *, show_user_emails, extra_widgets) -> None:
+    def _setup_usage_dashboard(
+        self,
+        *,
+        properties: DashboardProperties,
+    ) -> None:
         """Create a CloudWatch usage dashboard for this app, reading its own ALB
         metrics and container authentication logs."""
         self.usage_dashboard = AppUsageDashboard(
@@ -480,6 +474,5 @@ class WebApp(Stack):
             stage=self.deployment_config.environment.name.lower(),
             load_balancer=self.load_balancer,
             log_groups=[self.log_group],
-            show_user_emails=show_user_emails,
-            extra_widgets=extra_widgets,
+            properties=properties,
         )
