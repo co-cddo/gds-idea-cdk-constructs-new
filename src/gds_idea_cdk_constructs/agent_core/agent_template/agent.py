@@ -9,6 +9,7 @@ import json
 from collections.abc import AsyncGenerator
 from datetime import date
 from typing import Any
+import os
 
 from bedrock_agentcore.memory import MemoryClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -27,6 +28,20 @@ app = BedrockAgentCoreApp()
 memory_client = MemoryClient(region_name=config.region) if config.memory_id else None
 
 logger.info("Agent initialising (Model=%s, Region=%s)", config.model_id, config.region)
+# --- Knowledge Base (optional, injected if KB is attached via CDK) ---
+KB_ID = os.getenv("KB_ID")
+if KB_ID:
+    os.environ["KNOWLEDGE_BASE_ID"] = KB_ID  # Strands retrieve tool needs this
+
+# --- Tools ---
+tools = []
+
+# Conditional import and set up of knowledge base if available
+if KB_ID:
+    from strands_tools import retrieve
+    tools = [retrieve]
+    logger.info("KB retrieval tool enabled (KB_ID=%s)", KB_ID)
+
 
 
 # ==========================================================================
@@ -128,6 +143,14 @@ def create_agent(history: list[dict]) -> Agent:
             "budget_tokens": config.budget_tokens,
         }
 
+    # If knowledge base is available, need to tell LLM that it's available to use via the retrieve tool
+    if KB_ID:
+        system_prompt += (
+            "\n\nYou have access to a knowledge base via the retrieve tool. "
+            "Use it to search for relevant information when answering questions "
+            "that may require specific knowledge or documentation."
+        )
+
     return Agent(
         model=BedrockModel(
             model_id=config.model_id,
@@ -137,6 +160,7 @@ def create_agent(history: list[dict]) -> Agent:
         ),
         system_prompt=system_prompt,
         messages=history,
+        tools=tools,
     )
 
 

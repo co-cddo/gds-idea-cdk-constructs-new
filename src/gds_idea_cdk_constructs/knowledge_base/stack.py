@@ -95,6 +95,30 @@ class KnowledgeBase(Stack):
 
             # Grant the ECS task role permission to query the KB
             kb.grant_retrieve(webapp.task_role)
+
+        With an AgentCore runtime (cross-stack)::
+
+            from gds_idea_cdk_constructs.agent_core import (
+                DEFAULT_AGENT_CODE_DIR,
+                AgentCore,
+                AgentCoreProperties,
+                CustomAgent,
+            )
+
+            agent = AgentCore(
+                app,
+                "MyAgentStack",
+                props=AgentCoreProperties(
+                    runtime_name="my-agent",
+                    agent=CustomAgent(
+                        agent_code_directory=DEFAULT_AGENT_CODE_DIR,
+                        environment_variables=kb.environment_variables,
+                    ),
+                ),
+            )
+
+            # Grant the runtime permission to query the KB
+            kb.grant_retrieve(agent.runtime_role)
     """
 
     def __init__(
@@ -232,6 +256,7 @@ class KnowledgeBase(Stack):
             "DataBucket",
             bucket_name=f"{app_prefix}-kb-data-{env_name}",
             removal_policy=removal_policy,
+            auto_delete_objects=not self.kb_props.retain_on_delete,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             versioned=True,

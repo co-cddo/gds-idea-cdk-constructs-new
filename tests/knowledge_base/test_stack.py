@@ -100,6 +100,24 @@ def test_kb_stack_creates_s3_bucket(kb_default):
     )
 
 
+def test_kb_stack_auto_deletes_objects_when_not_retained(
+    cdk_app, deployment_config, app_config
+):
+    """Test that auto_delete_objects is enabled when retain_on_delete is False."""
+    kb = KnowledgeBase(
+        cdk_app,
+        deployment_config=deployment_config,
+        app_config=app_config,
+        kb_props=KnowledgeBaseProps(retain_on_delete=False),
+    )
+    template = Template.from_stack(kb)
+
+    template.has_resource(
+        "Custom::S3AutoDeleteObjects",
+        {"DeletionPolicy": "Delete"},
+    )
+
+
 def test_kb_stack_creates_vector_bucket(kb_default):
     """Test that the stack creates an S3 Vector Bucket."""
     template = Template.from_stack(kb_default)

@@ -71,6 +71,15 @@ class AgentCore(Stack):
                 cfn_memory.apply_removal_policy(props.removal_policy)
             env_vars["MEMORY_ID"] = memory.memory_id
 
+        # --- Knowledge Base (optional)
+        if props.knowledge_base:
+            kb_config = props.knowledge_base
+            env_vars.update(kb_config.knowledge_base.environment_variables)
+            env_vars["MIN_SCORE"] = str(kb_config.min_score)
+            env_vars["RETRIEVE_ENABLE_METADATA_DEFAULT"] = str(
+                kb_config.enable_metadata
+            ).lower()
+
         # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
             directory=code_dir,
@@ -85,6 +94,10 @@ class AgentCore(Stack):
             description=props.description,
             environment_variables=env_vars,
         )
+
+        # Expose cross-stack attributes
+        self.runtime_role = runtime.role
+        self.runtime_arn = runtime.agent_runtime_arn
 
         # --- Permissions ---
         # Model access (only for BuiltInAgent)
@@ -204,5 +217,62 @@ class AgentCore(Stack):
             )
         )
 
+        # Knowledge Base permissions
+        if props.knowledge_base:
+            props.knowledge_base.knowledge_base.grant_retrieve(runtime.role)
+
         # Show outputs
         CfnOutput(self, "RuntimeArn", value=runtime.agent_runtime_arn)
+        CfnOutput(self, "RuntimeRoleArn", value=runtime.role.role_arn)
+
+    # ------------------------------------------------------------------
+    # Cross-Stack integration
+    # ------------------------------------------------------------------
+
+    def grant_invoke(self, grantee: iam.IGrantable) -> None:
+        """Grant permissions to invoke this AgentCore runtime.
+
+        Grants the grantee ``bedrock-agentcore:InvokeAgentRuntime`` on the
+        runtime ARN.
+
+        Args:
+            grantee: The IAM principal to grant permissions to (e.g. a
+                task role from a
+                :class:`~gds_idea_cdk_constructs.web_app.WebApp` stack).
+
+        Example:
+            ::
+
+                agent = AgentCore(app, "AgentStack", props=AgentCoreProperties(...))
+                webapp = WebApp(app, ...)
+                agent.grant_invoke(webapp.task_role)
+        """
+        grantee.grant_principal.add_to_principal_policy(
+            iam.PolicyStatement(
+                sid="AgentCoreInvoke",
+                actions=["bedrock-agentcore:InvokeAgentRuntime"],
+                resources=[self.runtime_arn],
+            )
+        )
+
+    @property
+    def environment_variables(self) -> dict[str, str]:
+        """Environment variables for containers invoking this runtime.
+
+        Returns a dict suitable for passing into
+        :class:`~gds_idea_cdk_constructs.web_app.WebAppContainerProperties`
+        ``environment_variables``:
+
+        - ``AGENTCORE_RUNTIME_ARN``: The AgentCore runtime ARN.
+
+        Example:
+            ::
+
+                container_props = WebAppContainerProperties(
+                    environment_variables={
+                        **agent.environment_variables,
+                        "MY_OTHER_VAR": "value",
+                    },
+                )
+        """
+        return {"AGENTCORE_RUNTIME_ARN": self.runtime_arn}
