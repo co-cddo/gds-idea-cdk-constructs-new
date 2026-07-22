@@ -10,12 +10,14 @@ Environment variables:
     INDEX_DOCUMENT: Default document for directory requests (e.g. 'index.html')
     ERROR_DOCUMENT: Document to serve for 404s (optional)
     COGNITO_AUTH_SECRET_NAME: Secret name for authZ checks (unset for public sites)
+    CACHE_MAX_SIZE: Max number of S3 objects to cache in memory (default: 128)
 """
 
 import base64
 import json
 import mimetypes
 import os
+from functools import lru_cache
 
 import boto3
 
@@ -25,6 +27,9 @@ CONTENT_BUCKET = os.environ["CONTENT_BUCKET"]
 INDEX_DOCUMENT = os.environ.get("INDEX_DOCUMENT", "index.html")
 ERROR_DOCUMENT = os.environ.get("ERROR_DOCUMENT")
 COGNITO_AUTH_SECRET_NAME = os.environ.get("COGNITO_AUTH_SECRET_NAME")
+
+_cache_max_size = os.environ.get("CACHE_MAX_SIZE")
+CACHE_MAX_SIZE = int(_cache_max_size) if _cache_max_size else 128
 
 # Only import and initialise cognito-auth when authentication is configured
 _lambda_auth = None
@@ -131,41 +136,65 @@ def _resolve_s3_key(path):
 
 
 def _serve_file(s3_key):
-    """Fetch a file from S3 and return as ALB response."""
-    try:
-        obj = s3.get_object(Bucket=CONTENT_BUCKET, Key=s3_key)
-    except s3.exceptions.NoSuchKey:
+    """Fetch a file from S3 (with in-memory caching) and return as ALB response."""
+    content = _get_s3_content(CONTENT_BUCKET, s3_key)
+
+    if content is None:
         return _serve_error_page()
-    except Exception as e:
-        print(f"ERROR: Failed to read s3://{CONTENT_BUCKET}/{s3_key}: {e}")
-        return _response(500, "Internal Server Error", "text/plain")
-
-    content_type = obj.get("ContentType", "application/octet-stream")
-    if content_type == "application/octet-stream":
-        guessed, _ = mimetypes.guess_type(s3_key)
-        if guessed:
-            content_type = guessed
-
-    body = obj["Body"].read()
-    _, ext = os.path.splitext(s3_key)
-    is_binary = ext.lower() in BINARY_EXTENSIONS
-
-    if is_binary:
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": content_type},
-            "body": base64.b64encode(body).decode("utf-8"),
-            "isBase64Encoded": True,
-        }
 
     return {
         "statusCode": 200,
         "headers": {
-            "Content-Type": content_type,
-            "Cache-Control": _cache_control(ext),
+            "Content-Type": content["content_type"],
+            "Cache-Control": _cache_control(os.path.splitext(s3_key)[1]),
         },
-        "body": body.decode("utf-8"),
-        "isBase64Encoded": False,
+        "body": content["body"],
+        "isBase64Encoded": content["is_base64_encoded"],
+    }
+
+
+@lru_cache(maxsize=CACHE_MAX_SIZE)
+def _get_s3_content(bucket, key):
+    """Read an S3 object and cache the result in Lambda memory.
+
+    Cached across warm invocations — reduces S3 GET calls for frequently
+    accessed files. Cache is evicted when the Lambda execution environment
+    is recycled.
+
+    Args:
+        bucket: S3 bucket name.
+        key: S3 object key.
+
+    Returns:
+        Dict with body, content_type, is_base64_encoded — or None if not found.
+    """
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+    except s3.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        print(f"ERROR: Failed to read s3://{bucket}/{key}: {e}")
+        return None
+
+    content_type = obj.get("ContentType", "application/octet-stream")
+    if content_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(key)
+        if guessed:
+            content_type = guessed
+
+    body_bytes = obj["Body"].read()
+    _, ext = os.path.splitext(key)
+    is_binary = ext.lower() in BINARY_EXTENSIONS
+
+    if is_binary:
+        body = base64.b64encode(body_bytes).decode("utf-8")
+    else:
+        body = body_bytes.decode("utf-8")
+
+    return {
+        "body": body,
+        "content_type": content_type,
+        "is_base64_encoded": is_binary,
     }
 
 

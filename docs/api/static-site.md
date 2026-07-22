@@ -254,6 +254,36 @@ StaticSiteProperties(
 
 Old files will persist until manually removed.
 
+## Caching
+
+The serve Lambda uses two complementary caching strategies to minimise latency and reduce costs.
+
+### HTTP Cache-Control headers (browser-side)
+
+Response headers tell the browser what to cache:
+
+| File type | Header | Behaviour |
+|-----------|--------|-----------|
+| HTML (`.html`) | `max-age=0, must-revalidate` | Always revalidates with server |
+| Hashed assets (`.js`, `.css`, fonts) | `max-age=31536000, immutable` | Cached for 1 year |
+| Other files | `max-age=3600` | Cached for 1 hour |
+
+This reduces Lambda invocations per user — the browser serves cached assets locally.
+
+### In-memory LRU cache (Lambda-side)
+
+S3 file reads are cached in Lambda memory using `functools.lru_cache`. Once a file is read from S3, subsequent requests within the same warm Lambda execution environment are served from memory — no S3 API call.
+
+Configurable via `CACHE_MAX_SIZE` environment variable (default: 128 files).
+
+**Trade-offs:**
+
+- After a rebuild, cached content may be stale until the Lambda environment recycles (typically seconds to minutes)
+- Missing files (404s) are also cached until environment recycles
+- Each cached file consumes Lambda memory (bounded by `maxsize`)
+
+For full rationale, see [ADR-001: Use LRU cache for S3 reads](../adr/001-lru-cache-for-s3-reads.md).
+
 ## Created Resources
 
 | Resource | Purpose |

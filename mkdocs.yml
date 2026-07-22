@@ -39,6 +39,9 @@ nav:
       - Static Site: api/static-site.md
       - Authentication: api/auth.md
       - Container Properties: api/props.md
+  - Architecture Decisions:
+      - Overview: adr/index.md
+      - ADR-001 LRU Cache: adr/001-lru-cache-for-s3-reads.md
 
 plugins:
   - search
