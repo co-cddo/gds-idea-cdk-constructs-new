@@ -36,6 +36,7 @@ nav:
   - API Reference:
       - Configuration: api/config.md
       - WebApp Stack: api/webapp.md
+      - Static Site: api/static-site.md
       - Authentication: api/auth.md
       - Container Properties: api/props.md
 
