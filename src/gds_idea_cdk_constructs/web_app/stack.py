@@ -1,37 +1,28 @@
 import logging
-from pathlib import Path
 
 from aws_cdk import (
     CfnOutput,
-    CustomResource,
     Duration,
     RemovalPolicy,
-    Stack,
-    aws_certificatemanager as acm,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
-    aws_lambda as _lambda,
     aws_logs as logs,
-    aws_route53 as route53,
-    aws_s3 as s3,
-    aws_wafv2 as wafv2,
-    custom_resources as cr,
 )
 from aws_cdk.aws_ecr_assets import Platform
-from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
+from .._base_stack import BaseWebStack
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
-from ._auth_strategies import AUTH_STRATEGY_MAP, AuthType, IAuthStrategy
+from ._auth_strategies import AuthType
 from ._dashboard import AppUsageDashboard, DashboardProperties
 from .props import WebAppContainerProperties
 
 logger = logging.getLogger(__name__)
 
 
-class WebApp(Stack):
+class WebApp(BaseWebStack):
     """
     A configurable web application stack with a simplified API for authentication.
     """
@@ -117,33 +108,11 @@ class WebApp(Stack):
             ECS cluster lookup, Fargate task definition and service, and optional
             Cognito user pool client configuration.
         """
-        # Generate stack ID from app_name
-        stack_id = f"{app_config.app_name}-stack"
+        super().__init__(scope, deployment_config, app_config, authentication)
 
-        # Initialize the Stack with the CDK environment
-        super().__init__(scope, stack_id, env=deployment_config.cdk_env)
-
-        self.deployment_config = deployment_config
-        self.app_config = app_config
-        self.app_name = app_config.app_name
         self.container_props = (
             container_props or WebAppContainerProperties()
         )  # Load the default values
-
-        # Derived configuration
-        self.alb_domain_name = f"{self.app_name}.{self.deployment_config.domain_name}"
-
-        # Select the auth strategy
-        strategy_class = AUTH_STRATEGY_MAP.get(authentication)
-
-        if not strategy_class:
-            raise ValueError(f"Unsupported authentication type: {authentication}")
-
-        self._auth_strategy: IAuthStrategy = strategy_class(
-            self,
-            deployment_config,
-            self.app_name,
-        )
 
         # Configure task role based on whether a custom role is provided
         if task_role:
@@ -182,6 +151,7 @@ class WebApp(Stack):
             )
         else:
             self._associate_waf()
+
         self.usage_dashboard: AppUsageDashboard | None = None
         if enable_usage_dashboard:
             self._setup_usage_dashboard(
@@ -189,30 +159,6 @@ class WebApp(Stack):
             )
 
         self._create_outputs()
-
-    def _add_assume_policy_for_dev(self):
-        """Add ability for devs to assume the role if its being deployed from the dev
-        environment."""
-        dev_account_id = DeploymentEnvironment.DEVELOPMENT.value
-        self.task_role.assume_role_policy.add_statements(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                principals=[iam.AccountPrincipal(dev_account_id)],
-                actions=["sts:AssumeRole"],
-                conditions={
-                    "StringLike": {
-                        "aws:PrincipalArn": [
-                            f"arn:aws:iam::{dev_account_id}:role/*-poweraccess",
-                            f"arn:aws:iam::{dev_account_id}:role/*-admin",
-                        ]
-                    }
-                },
-            )
-        )
-        logger.info(
-            "Dev container access enabled: (*-poweraccess, *-admin) "
-            "can assume TaskRole for local development"
-        )
 
     def _setup_cross_account_access(self) -> None:
         """Grant the task role permission to assume the cross-account role
@@ -234,83 +180,10 @@ class WebApp(Stack):
         self._cross_account_env = {"CROSS_ACCOUNT_ROLE_ARN": role_arn}
         logger.info(f"Cross-account access enabled: {role_arn}")
 
-    def _import_existing_resources(self) -> None:
-        """Import existing VPC and other shared resources."""
-        self.vpc = ec2.Vpc.from_lookup(
-            self, "ExistingVPC", vpc_id=self.deployment_config.vpc_id
-        )
-
-        self.parent_hosted_zone = route53.HostedZone.from_lookup(
-            self, "HostedZone", domain_name=self.deployment_config.domain_name
-        )
-
-        self.log_bucket = s3.Bucket.from_bucket_name(
-            self, "ALBAccessLogsBucket", self.deployment_config.log_bucket_name
-        )
-
-    def _setup_dns_and_certificate(self) -> None:
-        self.app_hosted_zone = route53.HostedZone(
-            self, "AppHostedZone", zone_name=self.alb_domain_name
-        )
-        route53.NsRecord(
-            self,
-            "NsRecord",
-            zone=self.parent_hosted_zone,
-            record_name=self.app_name,
-            values=self.app_hosted_zone.hosted_zone_name_servers,
-        )
-        self.certificate = acm.Certificate(
-            self,
-            "Certificate",
-            domain_name=self.alb_domain_name,
-            validation=acm.CertificateValidation.from_dns(self.app_hosted_zone),
-        )
-
-        self.certificate.apply_removal_policy(RemovalPolicy.DESTROY)
-        self.app_hosted_zone.apply_removal_policy(RemovalPolicy.DESTROY)
-
-    def _setup_acm_clean_up(self) -> None:
-        clean_up_lambda_location = Path(__file__).parent / "lambda_handlers"
-        cleanup_fn = _lambda.Function(
-            self,
-            "AcmDnsCleanupFunction",
-            runtime=_lambda.Runtime.PYTHON_3_11,
-            handler="acm_dns_cleanup.handler",
-            timeout=Duration.minutes(2),
-            code=_lambda.Code.from_asset(str(clean_up_lambda_location)),
-            initial_policy=[
-                iam.PolicyStatement(
-                    actions=[
-                        "route53:ListResourceRecordSets",
-                        "route53:ChangeResourceRecordSets",
-                    ],
-                    resources=[
-                        f"arn:aws:route53:::hostedzone/{self.app_hosted_zone.hosted_zone_id}"
-                    ],
-                )
-            ],
-        )
-
-        cleanup_provider = cr.Provider(
-            self, "AcmDnsCleanupProvider", on_event_handler=cleanup_fn
-        )
-
-        cleanup_resource = CustomResource(
-            self,
-            "AcmDnsCleanupResource",
-            service_token=cleanup_provider.service_token,
-            properties={
-                "ZoneId": self.app_hosted_zone.hosted_zone_id,
-                "DomainName": self.alb_domain_name,
-            },
-        )
-
-        # Ensure clean up happens before zone is deleted.
-        cleanup_resource.node.add_dependency(self.app_hosted_zone)
-
     def _setup_ecs_resources(
         self, docker_context_path: str, dockerfile_path: str
     ) -> None:
+        """Create ECS Fargate task definition, container, and service."""
         cpu = self.container_props.cpu
         memory = self.container_props.memory_limit_mib
         desired_count = self.container_props.desired_count
@@ -373,8 +246,7 @@ class WebApp(Stack):
         )
 
     def _setup_load_balancer(self) -> None:
-        """Create ALB, delegating the listener action to the auth strategy."""
-
+        """Create target group for ECS service and set up ALB with listeners."""
         health_check_path = (
             self.container_props.health_check_path or self.app_config.health_check_path
         )
@@ -389,58 +261,7 @@ class WebApp(Stack):
             health_check={"path": health_check_path},
         )
 
-        self.load_balancer = elbv2.ApplicationLoadBalancer(
-            self,
-            "LoadBalancer",
-            vpc=self.vpc,
-            internet_facing=True,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PUBLIC, one_per_az=True
-            ),
-        )
-        self.load_balancer.log_access_logs(
-            self.log_bucket, prefix=f"access/{self.alb_domain_name}"
-        )
-
-        self.load_balancer.add_listener(
-            "HttpListener",
-            port=80,
-            default_action=elbv2.ListenerAction.redirect(
-                protocol="HTTPS", port="443", permanent=True
-            ),
-        )
-
-        # DELEGATION: Ask the strategy to create the correct listener action
-        default_https_action = self._auth_strategy.create_listener_action(
-            self.target_group
-        )
-
-        self.https_listener = self.load_balancer.add_listener(
-            "HttpsListener",
-            port=443,
-            certificates=[self.certificate],
-            default_action=default_https_action,
-        )
-
-        self.load_balancer.node.add_dependency(self.certificate)
-
-    def _setup_dns_record(self) -> None:
-        self.a_record = route53.ARecord(
-            self,
-            "ARecord",
-            zone=self.app_hosted_zone,
-            target=route53.RecordTarget.from_alias(
-                LoadBalancerTarget(self.load_balancer)
-            ),
-        )
-
-    def _associate_waf(self) -> None:
-        self.waf_association = wafv2.CfnWebACLAssociation(
-            self,
-            "WAF-ALB-Association",
-            resource_arn=self.load_balancer.load_balancer_arn,
-            web_acl_arn=self.deployment_config.waf_arn,
-        )
+        self._setup_alb_and_listeners(self.target_group)
 
     def _create_outputs(self) -> None:
         """Create base outputs and delegate to the strategy for specific outputs."""
