@@ -278,8 +278,8 @@ Configurable via `CACHE_MAX_SIZE` environment variable (default: 128 files).
 
 **Trade-offs:**
 
-- After a rebuild, cached content may be stale until the Lambda environment recycles (typically seconds to minutes)
-- Missing files (404s) are also cached until environment recycles
+- After a rebuild, previously-cached files may serve stale content until the Lambda environment recycles (typically seconds to minutes)
+- Missing files (404s) are **not** cached — every request for a missing file re-checks S3, so a file that appears after a delayed build is served on the very next request
 - Each cached file consumes Lambda memory (bounded by `maxsize`)
 
 For full rationale, see [ADR-001: Use LRU cache for S3 reads](../adr/001-lru-cache-for-s3-reads.md).
