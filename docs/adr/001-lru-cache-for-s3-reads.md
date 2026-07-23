@@ -54,7 +54,6 @@ Reasons:
 ### Negative
 
 - **Staleness after rebuild**: After the build Lambda uploads new content, the serve Lambda may serve cached (old) content until its execution environment is recycled. Typically seconds to minutes.
-- **404 caching**: If a file doesn't exist, the `None` return is cached. A newly created file won't be served until the environment recycles.
 - **Memory usage**: Each cached file consumes Lambda memory. Bounded by `maxsize` (default 128 files).
 
 ### Mitigations
@@ -63,3 +62,35 @@ Reasons:
 - Lambda environments under low traffic recycle quickly
 - `CACHE_MAX_SIZE` can be reduced for memory-constrained deployments
 - A future enhancement could clear the cache when the build Lambda completes (via SNS notification or shared state)
+
+## Update: 404s are not cached
+
+**Discovered during testing (first real deployment):** caching negative results (missing files) caused a genuinely broken experience, not just a theoretical risk. Sequence observed:
+
+1. A request hit the serve Lambda while the site's first build was still in progress (S3 empty) — `index.html` → `NoSuchKey` → cached as `None`
+2. The build completed successfully and uploaded all files to S3
+3. A subsequent request hit the *same warm Lambda execution environment* — the cached `None` for `index.html` was returned, producing a 404 even though the file now existed in S3
+4. This persisted until the Lambda environment happened to recycle, with no way to force it
+
+This is worse than the "stale content" case (Consequence 1 above) because it's not just serving *old* content — it's actively refusing to serve content that exists, with no user-facing indication of when it will resolve itself.
+
+**Fix applied:** split the cached function so that only successful S3 reads are memoized. Missing objects and errors raise an internal exception (`_NotFoundError`) instead of returning `None`. `functools.lru_cache` does not cache raised exceptions — only return values — so a call that raises is always re-executed on the next request. This preserves all the positive consequences above (successful reads are still cached) while removing the negative-caching failure mode entirely.
+
+```python
+def _get_s3_content(bucket, key):
+    try:
+        return _get_s3_content_cached(bucket, key)
+    except _NotFoundError:
+        return None
+
+
+@lru_cache(maxsize=CACHE_MAX_SIZE)
+def _get_s3_content_cached(bucket, key):
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+    except s3.exceptions.NoSuchKey:
+        raise _NotFoundError() from None
+    ...
+```
+
+The only remaining staleness case is genuinely-changed *existing* files (an already-cached successful read becoming outdated after a rebuild) — this is the originally accepted trade-off and remains unchanged.

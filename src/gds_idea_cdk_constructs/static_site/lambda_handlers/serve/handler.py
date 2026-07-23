@@ -153,13 +153,18 @@ def _serve_file(s3_key):
     }
 
 
-@lru_cache(maxsize=CACHE_MAX_SIZE)
-def _get_s3_content(bucket, key):
-    """Read an S3 object and cache the result in Lambda memory.
+class _NotFoundError(Exception):
+    """Internal sentinel for a missing S3 object.
 
-    Cached across warm invocations — reduces S3 GET calls for frequently
-    accessed files. Cache is evicted when the Lambda execution environment
-    is recycled.
+    Raising (rather than returning None) means lru_cache never caches a
+    "not found" result — a file that appears after a delayed build is
+    picked up on the very next request instead of waiting for the Lambda
+    execution environment to recycle.
+    """
+
+
+def _get_s3_content(bucket, key):
+    """Read an S3 object, using the cache only for successful reads.
 
     Args:
         bucket: S3 bucket name.
@@ -169,12 +174,38 @@ def _get_s3_content(bucket, key):
         Dict with body, content_type, is_base64_encoded — or None if not found.
     """
     try:
+        return _get_s3_content_cached(bucket, key)
+    except _NotFoundError:
+        return None
+
+
+@lru_cache(maxsize=CACHE_MAX_SIZE)
+def _get_s3_content_cached(bucket, key):
+    """Cached S3 read — only ever populated with successful reads.
+
+    Cached across warm invocations — reduces S3 GET calls for frequently
+    accessed files. Cache is evicted when the Lambda execution environment
+    is recycled. Errors and missing objects raise _NotFoundError, which
+    lru_cache does not cache (exceptions bypass the cache), so a retry
+    always re-checks S3.
+
+    Args:
+        bucket: S3 bucket name.
+        key: S3 object key.
+
+    Returns:
+        Dict with body, content_type, is_base64_encoded.
+
+    Raises:
+        _NotFoundError: If the object doesn't exist or can't be read.
+    """
+    try:
         obj = s3.get_object(Bucket=bucket, Key=key)
     except s3.exceptions.NoSuchKey:
-        return None
+        raise _NotFoundError() from None
     except Exception as e:
         print(f"ERROR: Failed to read s3://{bucket}/{key}: {e}")
-        return None
+        raise _NotFoundError() from None
 
     content_type = obj.get("ContentType", "application/octet-stream")
     if content_type == "application/octet-stream":
