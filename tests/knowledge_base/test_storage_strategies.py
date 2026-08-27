@@ -210,6 +210,32 @@ def test_s3_vectors_index_name_stable_for_same_config(test_stack):
     assert name_a == name_b
 
 
+def test_s3_vectors_config_fingerprint_used_by_index_name(test_stack):
+    """Test that _index_name delegates to config_fingerprint."""
+    strategy = S3VectorsStorageStrategy(test_stack, KnowledgeBaseProps())
+
+    fingerprint = strategy.config_fingerprint()
+    index_name = strategy._index_name("testapp", "testing")
+
+    assert len(fingerprint) == 8
+    assert index_name == f"testapp-index-testing-{fingerprint}"
+
+
+def test_s3_vectors_config_fingerprint_changes_with_distance_metric(test_stack):
+    """Test that config_fingerprint changes when distance_metric changes."""
+    default_strategy = S3VectorsStorageStrategy(test_stack, KnowledgeBaseProps())
+    cosine_strategy = S3VectorsStorageStrategy(
+        Stack(
+            App(),
+            "OtherStack",
+            env=CdkEnvironment(account="testing", region="eu-west-2"),
+        ),
+        KnowledgeBaseProps(distance_metric="euclidean"),
+    )
+
+    assert default_strategy.config_fingerprint() != cosine_strategy.config_fingerprint()
+
+
 # -- Error cases: calling methods before create_storage_resources --
 
 
