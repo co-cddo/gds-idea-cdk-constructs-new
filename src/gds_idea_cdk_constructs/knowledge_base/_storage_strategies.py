@@ -83,6 +83,18 @@ class IStorageStrategy(ABC):
             the Knowledge Base.
         """
 
+    @abstractmethod
+    def config_fingerprint(self) -> str:
+        """Return a short hash of properties that force storage replacement.
+
+        Used to derive config-dependent physical names for resources whose
+        naming is "sticky" under CloudFormation (i.e. custom-named resources
+        that CloudFormation refuses, or collides on, when replaced)
+
+        Returns:
+            An 8-hex-character hash string.
+        """
+
 
 class S3VectorsStorageStrategy(IStorageStrategy):
     """S3 Vectors storage backend — serverless vector storage built on S3.
@@ -97,6 +109,23 @@ class S3VectorsStorageStrategy(IStorageStrategy):
         super().__init__(scope, kb_props)
         self._vector_bucket: s3vectors.CfnVectorBucket | None = None
         self._vector_index: s3vectors.CfnIndex | None = None
+
+    def config_fingerprint(self) -> str:
+        """Hash the S3 Vectors properties that force Index replacement.
+
+        ``dimension``, ``distance_metric``, and ``metadata_configuration``
+        are all documented "Update requires: Replacement" on
+        ``AWS::S3Vectors::Index``.
+
+        Returns:
+            An 8-hex-character hash of those properties.
+        """
+        fingerprint_input = (
+            f"{self.kb_props.resolved_embedding_dimensions()}|"
+            f"{self.kb_props.distance_metric}|"
+            f"{sorted(self.kb_props.non_filterable_metadata_keys)}"
+        )
+        return hashlib.sha256(fingerprint_input.encode()).hexdigest()[:8]
 
     def _index_name(self, app_prefix: str, env_name: str) -> str:
         """Compute a config-dependent name for the Vector Index.
@@ -121,13 +150,7 @@ class S3VectorsStorageStrategy(IStorageStrategy):
         Returns:
             A name of the form ``{app_prefix}-index-{env_name}-{hash}``.
         """
-        fingerprint_input = (
-            f"{self.kb_props.resolved_embedding_dimensions()}|"
-            f"{self.kb_props.distance_metric}|"
-            f"{sorted(self.kb_props.non_filterable_metadata_keys)}"
-        )
-        fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:8]
-        return f"{app_prefix}-index-{env_name}-{fingerprint}"
+        return f"{app_prefix}-index-{env_name}-{self.config_fingerprint()}"
 
     def create_storage_resources(
         self, app_prefix: str, env_name: str, retain: bool
