@@ -112,6 +112,35 @@ def test_s3_vectors_get_resource_dependencies(s3_vectors_strategy):
     assert deps[0] == s3_vectors_strategy._vector_index
 
 
+def test_s3_vectors_default_non_filterable_metadata_keys(s3_vectors_strategy):
+    """Test that the index excludes Bedrock's reserved keys by default.
+
+    S3 Vectors treats every metadata key as filterable (subject to a
+    2048-byte cap per vector) unless declared non-filterable. Bedrock
+    Knowledge Base auto-populates AMAZON_BEDROCK_TEXT (raw chunk text)
+    and AMAZON_BEDROCK_METADATA (wrapper bookkeeping) on every vector, so
+    these must be excluded by default to avoid the cap being hit as soon
+    as chunk text grows beyond ~2KB. See
+    https://repost.aws/questions/QUWezLMjc0S8GOiaa3jOOKGQ/s3-vector-big-metadata-error
+    """
+    metadata_config = s3_vectors_strategy._vector_index.metadata_configuration
+
+    assert metadata_config.non_filterable_metadata_keys == [
+        "AMAZON_BEDROCK_TEXT",
+        "AMAZON_BEDROCK_METADATA",
+    ]
+
+
+def test_s3_vectors_custom_non_filterable_metadata_keys(test_stack):
+    """Test that a custom non_filterable_metadata_keys list is honoured."""
+    props = KnowledgeBaseProps(non_filterable_metadata_keys=["custom_key"])
+    strategy = S3VectorsStorageStrategy(test_stack, props)
+    strategy.create_storage_resources("testapp", "development", retain=True)
+
+    metadata_config = strategy._vector_index.metadata_configuration
+    assert metadata_config.non_filterable_metadata_keys == ["custom_key"]
+
+
 def test_s3_vectors_custom_dimensions(test_stack):
     """Test that custom embedding dimensions are applied to the index."""
     props = KnowledgeBaseProps(embedding_dimensions=512)

@@ -125,7 +125,7 @@ class S3VectorsStorageStrategy(IStorageStrategy):
             dimension=self.kb_props.resolved_embedding_dimensions(),
             distance_metric=self.kb_props.distance_metric,
             metadata_configuration=s3vectors.CfnIndex.MetadataConfigurationProperty(
-                non_filterable_metadata_keys=["content"],
+                non_filterable_metadata_keys=self.kb_props.non_filterable_metadata_keys,
             ),
         )
         self._vector_index.add_dependency(self._vector_bucket)
