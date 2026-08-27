@@ -359,7 +359,6 @@ class KnowledgeBase(Stack):
         self._data_source = bedrock.CfnDataSource(
             self,
             "DataSource",
-            name=f"{app_prefix}-datasource-{env_name}",
             description=f"S3 data source for {self.app_name}",
             knowledge_base_id=self._knowledge_base.attr_knowledge_base_id,
             data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
