@@ -11,6 +11,7 @@ To add a new storage backend:
     3. Register the class in :data:`STORAGE_STRATEGY_MAP`.
 """
 
+import hashlib
 from abc import ABC, abstractmethod
 
 from aws_cdk import (
@@ -97,6 +98,37 @@ class S3VectorsStorageStrategy(IStorageStrategy):
         self._vector_bucket: s3vectors.CfnVectorBucket | None = None
         self._vector_index: s3vectors.CfnIndex | None = None
 
+    def _index_name(self, app_prefix: str, env_name: str) -> str:
+        """Compute a config-dependent name for the Vector Index.
+
+        ``IndexName`` is an optional-but-sticky property of
+        ``AWS::S3Vectors::Index``: once specified, CloudFormation refuses to
+        perform *any* update that requires replacing the resource while the
+        name stays the same ("CloudFormation cannot update a stack when a
+        custom-named resource requires replacing. Rename ... and update the
+        stack again."). Nearly every property on this resource type
+        (dimension, distance metric, metadata configuration) requires
+        replacement, so a static name permanently blocks changing any of
+        them via a normal deploy.
+
+        AWS's own guidance for this situation is to specify a new name
+        whenever a replacement is needed. Folding a hash of the properties
+        that actually trigger replacement into the name means any such
+        change always produces a different name (satisfying CloudFormation's
+        requirement and avoiding physical-resource collisions), while
+        leaving those properties unchanged keeps the name stable.
+
+        Returns:
+            A name of the form ``{app_prefix}-index-{env_name}-{hash}``.
+        """
+        fingerprint_input = (
+            f"{self.kb_props.resolved_embedding_dimensions()}|"
+            f"{self.kb_props.distance_metric}|"
+            f"{sorted(self.kb_props.non_filterable_metadata_keys)}"
+        )
+        fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:8]
+        return f"{app_prefix}-index-{env_name}-{fingerprint}"
+
     def create_storage_resources(
         self, app_prefix: str, env_name: str, retain: bool
     ) -> None:
@@ -119,7 +151,7 @@ class S3VectorsStorageStrategy(IStorageStrategy):
         self._vector_index = s3vectors.CfnIndex(
             self.scope,
             "VectorIndex",
-            index_name=f"{app_prefix}-index-{env_name}",
+            index_name=self._index_name(app_prefix, env_name),
             vector_bucket_name=self._vector_bucket.vector_bucket_name,
             data_type="float32",
             dimension=self.kb_props.resolved_embedding_dimensions(),
