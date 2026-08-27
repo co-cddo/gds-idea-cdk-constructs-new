@@ -310,6 +310,23 @@ class KnowledgeBase(Stack):
         for statement in self._storage_strategy.get_iam_policy_statements():
             self._kb_role.add_to_policy(statement)
 
+    def _knowledge_base_name(self, app_prefix: str, env_name: str) -> str:
+        """Compute a storage-config-dependent name for the Knowledge Base.
+
+        Any storage property change (dimension, distance metric, metadata
+        configuration, etc.) that forces the storage backend to replace its
+        resources also changes ``StorageConfiguration`` here, forcing this
+        resource to replace too. Folding the same storage fingerprint into
+        this name means that replacement never collides with the
+        still-existing original.
+
+        Returns:
+            A name of the form ``{app_prefix}-kb-{env_name}-{hash}``.
+        """
+        return (
+            f"{app_prefix}-kb-{env_name}-{self._storage_strategy.config_fingerprint()}"
+        )
+
     def _create_knowledge_base(self, app_prefix: str, env_name: str) -> None:
         """Create the Bedrock Knowledge Base resource."""
         embedding_model_arn = self.format_arn(
@@ -323,7 +340,7 @@ class KnowledgeBase(Stack):
         self._knowledge_base = bedrock.CfnKnowledgeBase(
             self,
             "KnowledgeBase",
-            name=f"{app_prefix}-kb-{env_name}",
+            name=self._knowledge_base_name(app_prefix, env_name),
             description=self.kb_props.description
             or f"Knowledge base for {self.app_name}",
             role_arn=self._kb_role.role_arn,
@@ -346,25 +363,27 @@ class KnowledgeBase(Stack):
         self.kb_arn: str = self._knowledge_base.attr_knowledge_base_arn
 
     def _data_source_name(self, app_prefix: str, env_name: str) -> str:
-        """Compute a chunking-config-dependent name for the Data Source.
+        """Compute a config-dependent name for the Data Source.
 
         ``Name`` is a required property of ``AWS::Bedrock::DataSource``.
         AWS's CloudFormation docs rate ``VectorIngestionConfiguration``
         (i.e. the chunking configuration) as "No interruption", but in
         practice the Bedrock resource handler forces full replacement of
         the Data Source when chunking configuration changes.
-        Folding a hash of the chunking config into the name
-        means a chunking change always produces a different name (no
-        collision on replacement), while leaving chunking unchanged
-        keeps the name stable (allowing safe in-place updates for
-        everything else, e.g. description-only changes).
+        Folding a hash of *both* the chunking config and the
+        storage strategy's fingerprint into the name means either kind of
+        change always produces a different name (no collision on
+        replacement), while leaving both unchanged keeps the name stable
+        (allowing safe in-place updates for everything else, e.g.
+        description-only changes).
 
         Returns:
             A name of the form ``{app_prefix}-datasource-{env_name}-{hash}``.
         """
-        fingerprint = hashlib.sha256(repr(self.kb_props.chunking).encode()).hexdigest()[
-            :8
-        ]
+        fingerprint_input = (
+            f"{self.kb_props.chunking!r}|{self._storage_strategy.config_fingerprint()}"
+        )
+        fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:8]
         return f"{app_prefix}-datasource-{env_name}-{fingerprint}"
 
     def _create_data_source(self, app_prefix: str, env_name: str) -> None:

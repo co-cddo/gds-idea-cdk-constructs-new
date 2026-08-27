@@ -155,7 +155,7 @@ def test_kb_stack_creates_knowledge_base(kb_default):
     template.has_resource_properties(
         "AWS::Bedrock::KnowledgeBase",
         {
-            "Name": "testapp-kb-testing",
+            "Name": Match.string_like_regexp(r"^testapp-kb-testing-[0-9a-f]{8}$"),
             "KnowledgeBaseConfiguration": {
                 "Type": "VECTOR",
                 "VectorKnowledgeBaseConfiguration": {
