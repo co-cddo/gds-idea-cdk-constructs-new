@@ -12,6 +12,7 @@ Creates a fully configured Bedrock Knowledge Base with:
 Resources are named ``{app_name}-kb-*-{environment}`` for easy identification.
 """
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -344,6 +345,28 @@ class KnowledgeBase(Stack):
         self.kb_id: str = self._knowledge_base.attr_knowledge_base_id
         self.kb_arn: str = self._knowledge_base.attr_knowledge_base_arn
 
+    def _data_source_name(self, app_prefix: str, env_name: str) -> str:
+        """Compute a chunking-config-dependent name for the Data Source.
+
+        ``Name`` is a required property of ``AWS::Bedrock::DataSource``.
+        AWS's CloudFormation docs rate ``VectorIngestionConfiguration``
+        (i.e. the chunking configuration) as "No interruption", but in
+        practice the Bedrock resource handler forces full replacement of
+        the Data Source when chunking configuration changes.
+        Folding a hash of the chunking config into the name
+        means a chunking change always produces a different name (no
+        collision on replacement), while leaving chunking unchanged
+        keeps the name stable (allowing safe in-place updates for
+        everything else, e.g. description-only changes).
+
+        Returns:
+            A name of the form ``{app_prefix}-datasource-{env_name}-{hash}``.
+        """
+        fingerprint = hashlib.sha256(repr(self.kb_props.chunking).encode()).hexdigest()[
+            :8
+        ]
+        return f"{app_prefix}-datasource-{env_name}-{fingerprint}"
+
     def _create_data_source(self, app_prefix: str, env_name: str) -> None:
         """Create the Bedrock Data Source with chunking configuration."""
         # Build S3 data source configuration
@@ -359,6 +382,7 @@ class KnowledgeBase(Stack):
         self._data_source = bedrock.CfnDataSource(
             self,
             "DataSource",
+            name=self._data_source_name(app_prefix, env_name),
             description=f"S3 data source for {self.app_name}",
             knowledge_base_id=self._knowledge_base.attr_knowledge_base_id,
             data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(

@@ -187,13 +187,68 @@ def test_kb_stack_creates_data_source(kb_default):
     template.has_resource_properties(
         "AWS::Bedrock::DataSource",
         {
-            "Name": "testapp-datasource-testing",
+            "Name": Match.string_like_regexp(
+                r"^testapp-datasource-testing-[0-9a-f]{8}$"
+            ),
             "DataSourceConfiguration": {
                 "Type": "S3",
             },
             "DataDeletionPolicy": "DELETE",
         },
     )
+
+
+def test_kb_stack_data_source_name_changes_with_chunking_config(
+    deployment_config, app_config
+):
+    """Test that the Data Source name changes when chunking config changes.
+
+    This is a regression guard: AWS::Bedrock::DataSource requires
+    replacement when chunking config changes (despite CloudFormation
+    docs rating VectorIngestionConfiguration as "No interruption"), and
+    CloudFormation creates the replacement before deleting the original.
+    A static name would cause a 409 AlreadyExists collision — the name
+    must change whenever chunking config changes.
+    """
+    default_stack = KnowledgeBase(
+        App(),
+        deployment_config=deployment_config,
+        app_config=app_config,
+    )
+    fixed_chunking_stack = KnowledgeBase(
+        App(),
+        deployment_config=deployment_config,
+        app_config=app_config,
+        kb_props=KnowledgeBaseProps(
+            chunking=ChunkingConfig.fixed_size(max_tokens=500, overlap_percentage=15),
+        ),
+    )
+
+    default_name = default_stack._data_source_name("testapp", "testing")
+    fixed_chunking_name = fixed_chunking_stack._data_source_name("testapp", "testing")
+
+    assert default_name != fixed_chunking_name
+
+
+def test_kb_stack_data_source_name_stable_for_same_chunking_config(
+    kb_default, deployment_config, app_config
+):
+    """Test that the Data Source name is stable when chunking is unchanged.
+
+    Re-synthesizing the same configuration must yield the same name, so
+    that non-chunking changes (e.g. description) can update in place
+    rather than unnecessarily forcing replacement.
+    """
+    other_app_stack = KnowledgeBase(
+        App(),
+        deployment_config=deployment_config,
+        app_config=app_config,
+    )
+
+    name_a = kb_default._data_source_name("testapp", "testing")
+    name_b = other_app_stack._data_source_name("testapp", "testing")
+
+    assert name_a == name_b
 
 
 def test_kb_stack_creates_ssm_parameter(kb_default):
