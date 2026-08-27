@@ -163,6 +163,53 @@ def test_s3_vectors_custom_distance_metric(test_stack):
     assert strategy._vector_index is not None
 
 
+def test_s3_vectors_index_name_changes_with_metadata_config(test_stack):
+    """Test that the Index name changes when non_filterable_metadata_keys changes.
+
+    This is a regression guard: AWS::S3Vectors::Index requires replacement
+    for virtually every property (including MetadataConfiguration), and
+    CloudFormation refuses to update a stack when a custom-named resource
+    of this type requires replacing unless the name also changes. A static
+    name would permanently block any such change via a normal deploy.
+    """
+    default_strategy = S3VectorsStorageStrategy(test_stack, KnowledgeBaseProps())
+    custom_strategy = S3VectorsStorageStrategy(
+        Stack(
+            App(),
+            "OtherStack",
+            env=CdkEnvironment(account="testing", region="eu-west-2"),
+        ),
+        KnowledgeBaseProps(non_filterable_metadata_keys=["custom_key"]),
+    )
+
+    default_name = default_strategy._index_name("testapp", "testing")
+    custom_name = custom_strategy._index_name("testapp", "testing")
+
+    assert default_name != custom_name
+
+
+def test_s3_vectors_index_name_stable_for_same_config(test_stack):
+    """Test that the Index name is stable when config is unchanged.
+
+    Re-synthesizing the same configuration must yield the same name, so
+    that unrelated deploys don't unnecessarily force replacement.
+    """
+    strategy_a = S3VectorsStorageStrategy(test_stack, KnowledgeBaseProps())
+    strategy_b = S3VectorsStorageStrategy(
+        Stack(
+            App(),
+            "OtherStack",
+            env=CdkEnvironment(account="testing", region="eu-west-2"),
+        ),
+        KnowledgeBaseProps(),
+    )
+
+    name_a = strategy_a._index_name("testapp", "testing")
+    name_b = strategy_b._index_name("testapp", "testing")
+
+    assert name_a == name_b
+
+
 # -- Error cases: calling methods before create_storage_resources --
 
 

@@ -137,7 +137,9 @@ def test_kb_stack_creates_vector_index(kb_default):
     template.has_resource_properties(
         "AWS::S3Vectors::Index",
         {
-            "IndexName": "testapp-index-testing",
+            "IndexName": Match.string_like_regexp(
+                r"^testapp-index-testing-[0-9a-f]{8}$"
+            ),
             "DataType": "float32",
             "Dimension": 1024,
             "DistanceMetric": "cosine",
