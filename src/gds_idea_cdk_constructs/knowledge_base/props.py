@@ -278,6 +278,14 @@ class KnowledgeBaseProps:
     description: str = ""
     """Optional description stored on the Bedrock Knowledge Base resource."""
 
+    # -- Metadata --
+    non_filterable_metadata_keys: list[str] = field(
+        default_factory=lambda: ["AMAZON_BEDROCK_TEXT", "AMAZON_BEDROCK_METADATA"]
+    )
+    """S3 Vectors metadata keys excluded from the 2048-byte filterable-metadata
+    cap. Defaults to Bedrock's own reserved keys (raw chunk text + wrapper
+    bookkeeping) -- without this, larger chunk sizes reliably exceed the cap."""
+
     def resolved_embedding_dimensions(self) -> int:
         """Return the effective embedding dimensions.
 
