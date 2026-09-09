@@ -13,14 +13,14 @@ def grant_secret_access(
 ) -> None:
     """Grant read access to secrets whose name starts with a given prefix.
 
-    Uses a wildcard-suffixed ARN so the statement matches the random
+    Uses an ARN with wildcard so the statement matches the random
     suffix Secrets Manager appends to secret names.
 
     Args:
         task_role: The role to attach the policy statement to.
         stack: The stack used to resolve the secret ARN via `format_arn`.
         secret_name_prefix: The secret name, or name prefix, to match.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Statement ID. Override if calling multiple times on one role, otherwise is going to clash.
     """
     task_role.add_to_policy(
         iam.PolicyStatement(
