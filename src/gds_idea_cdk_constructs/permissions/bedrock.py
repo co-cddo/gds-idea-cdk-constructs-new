@@ -11,27 +11,30 @@ _INVOKE_MODEL_ACTIONS = [
 
 
 def grant_bedrock_invoke_model_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     stack: Stack,
     *,
     model_ids: list[str] | None = None,
-    sid: str = "BedrockInvokeModelAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant permission to invoke Bedrock foundation models.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         stack: The stack used to resolve the region for the ARN.
         model_ids: Optional list of foundation model IDs to scope access to,
             e.g. ["anthropic.claude-3-5-sonnet-20241022-v2:0"]. Defaults to
             all foundation models ("*") for early testing before devs can
             start to constrain policies.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     resource_ids = model_ids or ["*"]
-    task_role.add_to_policy(
+    grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
-            sid=sid,
+            **({"sid": sid} if sid else {}),
             actions=_INVOKE_MODEL_ACTIONS,
             resources=[
                 f"arn:aws:bedrock:{stack.region}::foundation-model/{model_id}"
