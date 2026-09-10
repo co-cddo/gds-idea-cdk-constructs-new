@@ -186,7 +186,9 @@ class KnowledgeBase(Stack):
     # Cross-Stack integration
     # ------------------------------------------------------------------
 
-    def grant_retrieve(self, grantee: iam.IGrantable) -> None:
+    def grant_retrieve(
+        self, grantee: iam.IGrantable, *, sid: str | None = None
+    ) -> None:
         """Grant permissions to retrieve from this knowledge base.
 
         Grants the grantee:
@@ -202,6 +204,10 @@ class KnowledgeBase(Stack):
             grantee: The IAM principal to grant permissions to (e.g. a
                 task role from a :class:`~gds_idea_cdk_constructs.web_app.WebApp`
                 stack).
+            sid: Optional statement ID. Omitted by default; a `Sid` only
+                needs to be unique within a policy document if one is
+                set, so this is safe to call multiple times on the same
+                grantee (e.g. from several `KnowledgeBase` stacks).
 
         Example:
             ::
@@ -212,7 +218,7 @@ class KnowledgeBase(Stack):
         """
         grantee.grant_principal.add_to_principal_policy(
             iam.PolicyStatement(
-                sid="BedrockRetrieve",
+                **({"sid": sid} if sid else {}),
                 actions=["bedrock:Retrieve"],
                 resources=[self.kb_arn],
             )
