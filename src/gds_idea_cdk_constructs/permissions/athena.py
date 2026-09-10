@@ -18,7 +18,7 @@ def grant_athena_workgroup_access(
     *,
     workgroup_name: str = ATHENA_WORKGROUP_NAME,
     region: str | None = None,
-    sid: str = "AthenaWorkgroupAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant permissions to run and manage Athena queries in a workgroup.
 
@@ -29,12 +29,14 @@ def grant_athena_workgroup_access(
             "primary" workgroup used in both dev and prod.
         region: Overrides the region in the workgroup ARN. Defaults to
             `stack.region`.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     resolved_region = region or stack.region
     task_role.add_to_policy(
         iam.PolicyStatement(
-            sid=sid,
+            **({"sid": sid} if sid else {}),
             actions=[
                 "athena:StartQueryExecution",
                 "athena:GetQueryExecution",
@@ -57,7 +59,7 @@ def grant_glue_catalog_access(
     *,
     table_name_pattern: str = "*",
     region: str | None = None,
-    sid: str = "GlueCatalogAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant read-only access to a Glue Data Catalog database and its tables.
 
@@ -69,12 +71,14 @@ def grant_glue_catalog_access(
             access to.
         region: Overrides the region in the ARNs. Defaults to
             `stack.region`.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     resolved_region = region or stack.region
     task_role.add_to_policy(
         iam.PolicyStatement(
-            sid=sid,
+            **({"sid": sid} if sid else {}),
             actions=[
                 "glue:GetTable",
                 "glue:GetTables",
@@ -98,7 +102,7 @@ def grant_s3_bucket_access(
     bucket_name: str,
     *,
     write: bool = False,
-    sid: str = "S3BucketAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant read (or read/write) access to an S3 bucket by name.
 
@@ -106,14 +110,16 @@ def grant_s3_bucket_access(
         task_role: The role to attach the policy statement to.
         bucket_name: Bucket name (without the `arn:aws:s3:::` prefix).
         write: If True, also grant `PutObject`/`AbortMultipartUpload`.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     actions = ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
     if write:
         actions += ["s3:PutObject", "s3:AbortMultipartUpload"]
     task_role.add_to_policy(
         iam.PolicyStatement(
-            sid=sid,
+            **({"sid": sid} if sid else {}),
             actions=actions,
             resources=[
                 f"arn:aws:s3:::{bucket_name}",
@@ -127,18 +133,20 @@ def grant_kms_key_access(
     task_role: iam.IRole,
     key_arn: str,
     *,
-    sid: str = "KmsKeyAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant decrypt/encrypt access to a KMS key by ARN.
 
     Args:
         task_role: The role to attach the policy statement to.
         key_arn: The KMS key ARN.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     task_role.add_to_policy(
         iam.PolicyStatement(
-            sid=sid,
+            **({"sid": sid} if sid else {}),
             actions=[
                 "kms:Decrypt",
                 "kms:GenerateDataKey",
@@ -155,7 +163,7 @@ def grant_athena_results_access(
     athena_settings: AthenaSettings,
     *,
     write: bool = True,
-    sid_prefix: str = "AthenaResults",
+    sid_prefix: str | None = None,
 ) -> None:
     """Grant access to the environment's Athena query results bucket + key.
 
@@ -166,15 +174,18 @@ def grant_athena_results_access(
             KMS key ARN.
         write: If True (default), also grant write access to the results
             bucket (queries need to write their own results).
-        sid_prefix: Prefix used to build the two statement Sids
-            (`{sid_prefix}BucketAccess`, `{sid_prefix}KmsAccess`).
+        sid_prefix: Optional prefix used to build the two statement Sids
+            (`{sid_prefix}BucketAccess`, `{sid_prefix}KmsAccess`). Omitted
+            by default; only set if you want named statements.
     """
     grant_s3_bucket_access(
         task_role,
         athena_settings.results_bucket_name,
         write=write,
-        sid=f"{sid_prefix}BucketAccess",
+        sid=f"{sid_prefix}BucketAccess" if sid_prefix else None,
     )
     grant_kms_key_access(
-        task_role, athena_settings.kms_key_arn, sid=f"{sid_prefix}KmsAccess"
+        task_role,
+        athena_settings.kms_key_arn,
+        sid=f"{sid_prefix}KmsAccess" if sid_prefix else None,
     )
