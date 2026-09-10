@@ -1,4 +1,4 @@
-from .config import AppConfig, DeploymentConfig, DeploymentEnvironment
+from .config import AppConfig, DeploymentConfig, DeploymentEnvironment, StackId
 from .tagging import IdeaTags
 
 __all__ = [
@@ -6,4 +6,5 @@ __all__ = [
     "DeploymentConfig",
     "AppConfig",
     "IdeaTags",
+    "StackId",
 ]
