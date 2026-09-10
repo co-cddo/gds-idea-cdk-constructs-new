@@ -143,9 +143,6 @@ The construct automatically injects these env vars into your container:
 | `name` | `str` | `"chat_session_store"` | Memory store name |
 | `description` | `str` | `"Stores short-term..."` | Memory store description |
 
-<<<<<<< HEAD
-Docs https://co-cddo.github.io/gds-idea-cdk-constructs-new/
-=======
 ## Knowledge Base
 
 Creates an [Amazon Bedrock Knowledge Base](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html) with S3 data source, vector storage, and automatic sync. Supports configurable chunking strategies, embedding models, and storage backends.
@@ -339,5 +336,94 @@ for result in response["retrievalResults"]:
 | `ChunkingConfig.hierarchical(max_tokens, overlap_percentage)` | `300`, `20` | Two-level parent/child chunks |
 | `ChunkingConfig.semantic(max_tokens, buffer_size, breakpoint_percentile_threshold)` | `300`, `0`, `95` | Split on semantic boundaries |
 
-Docs https://co-cddo.github.io/gds-idea-cdk-constructs/
->>>>>>> 5592a04 (Added to readme for new knowledge base config)
+## Permissions
+
+Reusable IAM grant helpers for common AWS resource access patterns: Athena/Glue/S3/KMS, Secrets Manager, Bedrock, DynamoDB, and rAPId's shared Athena-backed database. Each `grant_*` function accepts an `iam.IGrantable` (a `Role`, `Function`, `Instance`, `Service`, etc.) and attaches a scoped IAM policy statement directly — no CDK resource construct needed for buckets/tables/secrets you don't own.
+
+### Quick start
+
+```python
+from gds_idea_cdk_constructs.permissions import (
+    grant_secret_access,
+    grant_bedrock_invoke_model_access,
+    grant_dynamodb_table_access,
+)
+
+# Read a secret whose name starts with "my-app/"
+grant_secret_access(webapp.task_role, stack, "my-app/access")
+
+# Invoke any Bedrock foundation model
+grant_bedrock_invoke_model_access(webapp.task_role, stack)
+
+# Read/write a DynamoDB table (including its Global/Local Secondary Indexes)
+grant_dynamodb_table_access(webapp.task_role, stack, "my-table", write=True)
+```
+
+### Athena, Glue, S3, and KMS
+
+```python
+from gds_idea_cdk_constructs.permissions import (
+    AthenaSettings,
+    grant_athena_workgroup_access,
+    grant_athena_results_access,
+    grant_glue_catalog_access,
+    grant_kms_key_access,
+    grant_s3_bucket_access,
+)
+
+grant_athena_workgroup_access(webapp.task_role, stack)
+grant_glue_catalog_access(webapp.task_role, stack, "my_database")
+grant_s3_bucket_access(webapp.task_role, "my-data-bucket")
+
+# Composite helper: grants the environment's Athena query-results bucket + KMS key
+athena_settings = AthenaSettings(cdk_env)
+grant_athena_results_access(webapp.task_role, athena_settings)
+```
+
+`AthenaSettings` fetches the current environment's Athena query results bucket name and KMS key ARN from the `/gds-idea-athena` SSM parameter (mirrors `DeploymentConfig`'s fetch pattern, kept separate since it's permissions-specific). Use `AthenaSettings.from_dict(environment, config)` in tests or local development to avoid a real Parameter Store call.
+
+### rAPId database access
+
+```python
+from gds_idea_cdk_constructs.permissions import AthenaSettings, grant_rapid_database_access
+
+athena_settings = AthenaSettings(cdk_env)
+grant_rapid_database_access(
+    webapp.task_role,
+    stack,
+    deployment_config,
+    athena_settings,
+    secret_name="my-app/rapid",
+)
+```
+
+In production, grants direct access to rAPId's Athena workgroup, Glue catalog, data bucket, and query results bucket/KMS key (rAPId lives in the production account). In every other environment, grants `sts:AssumeRole` on rAPId's cross-account role instead, since access must be brokered through the production account. A secret holding rAPId API credentials is always granted, regardless of environment.
+
+### Configuration reference
+
+#### Grant helpers
+
+| Function | Grants | Key parameters |
+|---|---|---|
+| `grant_athena_workgroup_access` | Run/manage Athena queries in a workgroup | `workgroup_name="primary"`, `region` |
+| `grant_glue_catalog_access` | Read a Glue database and its tables | `database_name`, `table_name_pattern="*"`, `region` |
+| `grant_s3_bucket_access` | Read (or read/write) an S3 bucket | `bucket_name`, `write=False` |
+| `grant_kms_key_access` | Decrypt/encrypt with a KMS key | `key_arn` |
+| `grant_athena_results_access` | Composite: S3 + KMS access to the environment's Athena results | `athena_settings`, `write=True`, `sid_prefix` |
+| `grant_secret_access` | Read secrets matching a name prefix | `secret_name_prefix` |
+| `grant_bedrock_invoke_model_access` | Invoke Bedrock foundation models | `model_ids=None` (all models) |
+| `grant_dynamodb_table_access` | Read (or read/write) a DynamoDB table and its indexes | `table_name`, `write=False`, `include_indexes=True`, `region` |
+| `grant_rapid_database_access` | Composite: query rAPId's shared database (direct in prod, assumed-role elsewhere) | `deployment_config`, `athena_settings`, `secret_name` |
+
+Every function's first argument is an `iam.IGrantable` (`Role`, `Function`, `Instance`, `Service`, etc.), and every function accepts an optional `sid` keyword to name the statement. `sid` is omitted by default — a `Sid` only needs to be unique within a policy document if one is explicitly set, so all of these are safe to call multiple times on the same principal.
+
+#### `AthenaSettings`
+
+| Property | Type | Description |
+|---|---|---|
+| `results_bucket_name` | `str` | Environment's Athena query results S3 bucket |
+| `kms_key_arn` | `str` | KMS key ARN used to encrypt/decrypt query results |
+
+Fetched from the `/gds-idea-athena` SSM parameter (a JSON blob keyed by account ID).
+
+Docs https://co-cddo.github.io/gds-idea-cdk-constructs-new/
