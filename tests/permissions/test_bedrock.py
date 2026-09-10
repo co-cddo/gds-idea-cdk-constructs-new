@@ -52,8 +52,7 @@ def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee)
                                     "bedrock:ConverseStream",
                                 ],
                                 "Resource": (
-                                    "arn:aws:bedrock:eu-west-2::"
-                                    "foundation-model/*"
+                                    "arn:aws:bedrock:eu-west-2::foundation-model/*"
                                 ),
                             }
                         )
