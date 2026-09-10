@@ -18,19 +18,20 @@ _WRITE_ACTIONS = [
 
 
 def grant_dynamodb_table_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     stack: Stack,
     table_name: str,
     *,
     write: bool = False,
     include_indexes: bool = True,
     region: str | None = None,
-    sid: str = "DynamoDbTableAccess",
+    sid: str | None = None,
 ) -> None:
     """Grant read (or read/write) access to a DynamoDB table by name.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         stack: The stack used to resolve region/account for the ARN.
         table_name: The DynamoDB table name.
         write: If True, also grant PutItem/UpdateItem/DeleteItem/
@@ -40,7 +41,9 @@ def grant_dynamodb_table_access(
             a GSI requires permission on the index ARN, not just the
             table ARN).
         region: Overrides the region in the ARN. Defaults to `stack.region`.
-        sid: Statement ID. Override if calling multiple times on one role.
+        sid: Optional statement ID. Omitted by default; a `Sid` only needs
+            to be unique within a policy document if one is set, so this
+            is safe to call multiple times on the same role.
     """
     resolved_region = region or stack.region
     table_arn = f"arn:aws:dynamodb:{resolved_region}:{stack.account}:table/{table_name}"
@@ -52,6 +55,8 @@ def grant_dynamodb_table_access(
     if write:
         actions += _WRITE_ACTIONS
 
-    task_role.add_to_policy(
-        iam.PolicyStatement(sid=sid, actions=actions, resources=resources)
+    grantee.grant_principal.add_to_principal_policy(
+        iam.PolicyStatement(
+            **({"sid": sid} if sid else {}), actions=actions, resources=resources
+        )
     )
