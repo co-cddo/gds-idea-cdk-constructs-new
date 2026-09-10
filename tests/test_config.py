@@ -10,6 +10,7 @@ from gds_idea_cdk_constructs.config import (
     AppConfig,
     DeploymentConfig,
     DeploymentEnvironment,
+    StackId,
 )
 
 from .conftest import TEST_CONFIG
@@ -309,3 +310,44 @@ key = "value"
 
     with pytest.raises(KeyError):
         AppConfig.from_pyproject(str(pyproject_file))
+
+
+# StackId tests
+
+
+def test_stack_id_call_builds_expected_string():
+    """Test that calling a StackId builds the expected string."""
+    stack_id = StackId(project="myproj", phase="dev")
+
+    assert stack_id("MyStack") == "myproj-MyStack-dev"
+
+
+def test_stack_id_from_config(app_config, deployment_config):
+    """Test that from_config resolves project and phase from config objects."""
+    stack_id = StackId.from_config(app_config, deployment_config)
+
+    assert stack_id.project == "testapp"
+    assert stack_id.phase == "test"
+
+
+def test_stack_id_from_config_call(app_config, deployment_config):
+    """Test that a StackId built via from_config produces the expected string."""
+    stack_id = StackId.from_config(app_config, deployment_config)
+
+    assert stack_id("PaperStore") == "testapp-PaperStore-test"
+
+
+def test_stack_id_from_config_uses_short_name_per_environment(
+    app_config, dev_cdk_env, prod_cdk_env
+):
+    """Test that from_config picks up dev/prod short names correctly."""
+    dev_config = DeploymentConfig.from_dict(dev_cdk_env, TEST_CONFIG)
+    prod_config = DeploymentConfig.from_dict(prod_cdk_env, TEST_CONFIG)
+
+    dev_stack_id = StackId.from_config(app_config, dev_config)
+    prod_stack_id = StackId.from_config(app_config, prod_config)
+
+    assert dev_config.environment == DeploymentEnvironment.DEVELOPMENT
+    assert prod_config.environment == DeploymentEnvironment.PRODUCTION
+    assert dev_stack_id("MyStack") == "testapp-MyStack-dev"
+    assert prod_stack_id("MyStack") == "testapp-MyStack-prod"
