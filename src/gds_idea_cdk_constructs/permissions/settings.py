@@ -18,20 +18,23 @@ from ..config import DeploymentEnvironment
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REGION = "eu-west-2"  # London
+DEFAULT_REGION = (
+    "eu-west-2"  # London should be used by default for every bit of infra we create
+)
 
-ATHENA_WORKGROUP_NAME = "primary"  # same name in both dev and prod accounts
+ATHENA_WORKGROUP_NAME = "primary"  # same name in both dev and prod accounts currently
 
 
 class AthenaSettings:
     """Environment-specific Athena settings, fetched from Parameter Store.
 
     Fetches a single SSM parameter (``/gds-idea-athena``) containing a JSON
-    blob keyed by account ID, each with ``results_bucket_name`` and
+    blob keyed by account ID each with ``results_bucket_name`` and
     ``kms_key_arn``.
 
-    For testing, local development without Parameter Store access, or to point at a different KMS key/bucket, use
-    the `from_dict` classmethod instead.
+    For testing, local development without Parameter Store access,
+    or to point at a different KMS key/bucket, use the `from_dict`
+    classmethod instead.
     """
 
     PARAM_NAME = "/gds-idea-athena"
