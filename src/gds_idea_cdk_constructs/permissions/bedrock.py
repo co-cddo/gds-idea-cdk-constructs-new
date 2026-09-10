@@ -19,10 +19,6 @@ def grant_bedrock_invoke_model_access(
 ) -> None:
     """Grant permission to invoke Bedrock foundation models.
 
-    Foundation-model resources are scoped by region only.
-    Pass `model_ids` to restrict access to specific models; otherwise access is
-    given to all foundation models.
-
     Args:
         task_role: The role to attach the policy statement to.
         stack: The stack used to resolve the region for the ARN.
