@@ -13,7 +13,7 @@ from .settings import ATHENA_WORKGROUP_NAME, AthenaSettings
 
 
 def grant_athena_workgroup_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     stack: Stack,
     *,
     workgroup_name: str = ATHENA_WORKGROUP_NAME,
@@ -23,7 +23,8 @@ def grant_athena_workgroup_access(
     """Grant permissions to run and manage Athena queries in a workgroup.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         stack: The stack used to resolve region/account for the ARN.
         workgroup_name: Athena workgroup name. Defaults to the shared
             "primary" workgroup used in both dev and prod.
@@ -34,7 +35,7 @@ def grant_athena_workgroup_access(
             is safe to call multiple times on the same role.
     """
     resolved_region = region or stack.region
-    task_role.add_to_policy(
+    grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
             actions=[
@@ -53,7 +54,7 @@ def grant_athena_workgroup_access(
 
 
 def grant_glue_catalog_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     stack: Stack,
     database_name: str,
     *,
@@ -64,7 +65,8 @@ def grant_glue_catalog_access(
     """Grant read-only access to a Glue Data Catalog database and its tables.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         stack: The stack used to resolve region/account for the ARN.
         database_name: The Glue database name.
         table_name_pattern: Table name, or wildcard pattern, to scope
@@ -76,7 +78,7 @@ def grant_glue_catalog_access(
             is safe to call multiple times on the same role.
     """
     resolved_region = region or stack.region
-    task_role.add_to_policy(
+    grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
             actions=[
@@ -98,7 +100,7 @@ def grant_glue_catalog_access(
 
 
 def grant_s3_bucket_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     bucket_name: str,
     *,
     write: bool = False,
@@ -107,7 +109,8 @@ def grant_s3_bucket_access(
     """Grant read (or read/write) access to an S3 bucket by name.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         bucket_name: Bucket name (without the `arn:aws:s3:::` prefix).
         write: If True, also grant `PutObject`/`AbortMultipartUpload`.
         sid: Optional statement ID. Omitted by default; a `Sid` only needs
@@ -117,7 +120,7 @@ def grant_s3_bucket_access(
     actions = ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
     if write:
         actions += ["s3:PutObject", "s3:AbortMultipartUpload"]
-    task_role.add_to_policy(
+    grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
             actions=actions,
@@ -130,7 +133,7 @@ def grant_s3_bucket_access(
 
 
 def grant_kms_key_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     key_arn: str,
     *,
     sid: str | None = None,
@@ -138,13 +141,14 @@ def grant_kms_key_access(
     """Grant decrypt/encrypt access to a KMS key by ARN.
 
     Args:
-        task_role: The role to attach the policy statement to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         key_arn: The KMS key ARN.
         sid: Optional statement ID. Omitted by default; a `Sid` only needs
             to be unique within a policy document if one is set, so this
             is safe to call multiple times on the same role.
     """
-    task_role.add_to_policy(
+    grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
             actions=[
@@ -159,7 +163,7 @@ def grant_kms_key_access(
 
 
 def grant_athena_results_access(
-    task_role: iam.IRole,
+    grantee: iam.IGrantable,
     athena_settings: AthenaSettings,
     *,
     write: bool = True,
@@ -168,7 +172,8 @@ def grant_athena_results_access(
     """Grant access to the environment's Athena query results bucket + key.
 
     Args:
-        task_role: The role to attach policy statements to.
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
         athena_settings: Resolved settings for the current environment
             (see `AthenaSettings`), providing the results bucket name and
             KMS key ARN.
@@ -179,13 +184,13 @@ def grant_athena_results_access(
             by default; only set if you want named statements.
     """
     grant_s3_bucket_access(
-        task_role,
+        grantee,
         athena_settings.results_bucket_name,
         write=write,
         sid=f"{sid_prefix}BucketAccess" if sid_prefix else None,
     )
     grant_kms_key_access(
-        task_role,
+        grantee,
         athena_settings.kms_key_arn,
         sid=f"{sid_prefix}KmsAccess" if sid_prefix else None,
     )
