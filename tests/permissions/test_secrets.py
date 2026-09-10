@@ -102,9 +102,7 @@ def test_grant_secret_access_omits_sid_by_default(test_stack, grantee):
     assert "Sid" not in statement
 
 
-def test_grant_secret_access_callable_multiple_times_without_clash(
-    test_stack, grantee
-):
+def test_grant_secret_access_callable_multiple_times_without_clash(test_stack, grantee):
     """Test that calling twice on the same role does not clash (no fixed Sid)."""
     grant_secret_access(grantee, test_stack, "my-app/access")
     grant_secret_access(grantee, test_stack, "other-app/access")
@@ -116,12 +114,8 @@ def test_grant_secret_access_callable_multiple_times_without_clash(
             "PolicyDocument": {
                 "Statement": Match.array_with(
                     [
-                        Match.object_like(
-                            {"Action": "secretsmanager:GetSecretValue"}
-                        ),
-                        Match.object_like(
-                            {"Action": "secretsmanager:GetSecretValue"}
-                        ),
+                        Match.object_like({"Action": "secretsmanager:GetSecretValue"}),
+                        Match.object_like({"Action": "secretsmanager:GetSecretValue"}),
                     ]
                 )
             }
