@@ -33,7 +33,7 @@ def grantee(test_stack):
 
 
 def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee):
-    """Test that the default model scope is all foundation models."""
+    """Test that the default scope is all foundation models AND inference profiles."""
     grant_bedrock_invoke_model_access(grantee, test_stack)
     template = Template.from_stack(test_stack)
 
@@ -51,9 +51,11 @@ def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee)
                                     "bedrock:Converse",
                                     "bedrock:ConverseStream",
                                 ],
-                                "Resource": (
-                                    "arn:aws:bedrock:eu-west-2::foundation-model/*"
-                                ),
+                                "Resource": [
+                                    "arn:aws:bedrock:eu-west-2::foundation-model/*",
+                                    "arn:aws:bedrock:eu-west-2:992382722318:"
+                                    "inference-profile/*",
+                                ],
                             }
                         )
                     ]
@@ -64,7 +66,7 @@ def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee)
 
 
 def test_grant_bedrock_invoke_model_access_scoped_model_ids(test_stack, grantee):
-    """Test that model_ids scopes the resource ARNs to specific models."""
+    """Test that model_ids scopes the foundation-model resource ARNs."""
     grant_bedrock_invoke_model_access(
         grantee,
         test_stack,
@@ -83,11 +85,82 @@ def test_grant_bedrock_invoke_model_access_scoped_model_ids(test_stack, grantee)
                     [
                         Match.object_like(
                             {
+                                "Resource": Match.array_with(
+                                    [
+                                        "arn:aws:bedrock:eu-west-2::foundation-model/"
+                                        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+                                        "arn:aws:bedrock:eu-west-2::foundation-model/"
+                                        "amazon.titan-text-express-v1",
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_bedrock_invoke_model_access_scoped_inference_profile_ids(
+    test_stack, grantee
+):
+    """Test that inference_profile_ids scopes the inference-profile resource ARNs."""
+    grant_bedrock_invoke_model_access(
+        grantee,
+        test_stack,
+        inference_profile_ids=["eu.anthropic.claude-haiku-4-5-20251001-v1:0"],
+    )
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Resource": Match.array_with(
+                                    [
+                                        "arn:aws:bedrock:eu-west-2:992382722318:"
+                                        "inference-profile/"
+                                        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_bedrock_invoke_model_access_scoped_both(test_stack, grantee):
+    """Test that both model_ids and inference_profile_ids can be scoped together."""
+    grant_bedrock_invoke_model_access(
+        grantee,
+        test_stack,
+        model_ids=["amazon.titan-text-express-v1"],
+        inference_profile_ids=["eu.anthropic.claude-haiku-4-5-20251001-v1:0"],
+    )
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
                                 "Resource": [
                                     "arn:aws:bedrock:eu-west-2::foundation-model/"
-                                    "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                                    "arn:aws:bedrock:eu-west-2::foundation-model/"
                                     "amazon.titan-text-express-v1",
+                                    "arn:aws:bedrock:eu-west-2:992382722318:"
+                                    "inference-profile/"
+                                    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
                                 ],
                             }
                         )
