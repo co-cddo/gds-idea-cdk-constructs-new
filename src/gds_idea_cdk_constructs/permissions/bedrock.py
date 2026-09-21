@@ -23,7 +23,8 @@ def grant_bedrock_invoke_model_access(
     Args:
         grantee: The IAM principal to grant permissions to (e.g. a Role,
             Lambda Function, EC2 Instance, ECS Service, etc.).
-        stack: The stack used to resolve the region/account for the ARNs.
+        stack: The stack used to resolve the account for the inference-profile
+        ARNs.
         model_ids: Optional list of foundation model IDs to scope access to,
             e.g. ["anthropic.claude-3-5-sonnet-20241022-v2:0"]. Defaults to
             all foundation models ("*") for early testing before devs can
@@ -37,8 +38,7 @@ def grant_bedrock_invoke_model_access(
     resource_ids = model_ids or ["*"]
     profile_ids = inference_profile_ids or ["*"]
     resources = [
-        f"arn:aws:bedrock:{stack.region}::foundation-model/{model_id}"
-        for model_id in resource_ids
+        f"arn:aws:bedrock:*::foundation-model/{model_id}" for model_id in resource_ids
     ] + [
         f"arn:aws:bedrock:{stack.region}:{stack.account}:inference-profile/{profile_id}"
         for profile_id in profile_ids

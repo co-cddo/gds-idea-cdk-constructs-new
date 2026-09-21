@@ -52,7 +52,7 @@ def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee)
                                     "bedrock:ConverseStream",
                                 ],
                                 "Resource": [
-                                    "arn:aws:bedrock:eu-west-2::foundation-model/*",
+                                    "arn:aws:bedrock:*::foundation-model/*",
                                     "arn:aws:bedrock:eu-west-2:992382722318:"
                                     "inference-profile/*",
                                 ],
@@ -87,9 +87,9 @@ def test_grant_bedrock_invoke_model_access_scoped_model_ids(test_stack, grantee)
                             {
                                 "Resource": Match.array_with(
                                     [
-                                        "arn:aws:bedrock:eu-west-2::foundation-model/"
+                                        "arn:aws:bedrock:*::foundation-model/"
                                         "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                                        "arn:aws:bedrock:eu-west-2::foundation-model/"
+                                        "arn:aws:bedrock:*::foundation-model/"
                                         "amazon.titan-text-express-v1",
                                     ]
                                 ),
@@ -156,7 +156,7 @@ def test_grant_bedrock_invoke_model_access_scoped_both(test_stack, grantee):
                         Match.object_like(
                             {
                                 "Resource": [
-                                    "arn:aws:bedrock:eu-west-2::foundation-model/"
+                                    "arn:aws:bedrock:*::foundation-model/"
                                     "amazon.titan-text-express-v1",
                                     "arn:aws:bedrock:eu-west-2:992382722318:"
                                     "inference-profile/"
