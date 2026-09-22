@@ -234,3 +234,41 @@ class AppConfig:
             "fastapi": "/health",
         }
         return paths.get(framework, "/health")
+
+
+class StackId:
+    """Generates consistent CDK stack IDs from app and deployment config."""
+
+    def __init__(self, project: str, phase: str) -> None:
+        self.project = project
+        self.phase = phase
+
+    @classmethod
+    def from_config(
+        cls, app_config: AppConfig, deployment_config: DeploymentConfig
+    ) -> "StackId":
+        """Build a StackId from an AppConfig and DeploymentConfig.
+
+        Args:
+            app_config: Provides the project name (`app_config.app_name`).
+            deployment_config: Provides the environment short name
+                (`deployment_config.environment.short_name`, e.g. "dev"/"prod").
+
+        Returns:
+            A configured StackId instance.
+        """
+        return cls(
+            project=app_config.app_name,
+            phase=deployment_config.environment.short_name,
+        )
+
+    def __call__(self, stack_name: str) -> str:
+        """Build a full, consistent stack ID.
+
+        Args:
+            stack_name: The logical name of the stack (e.g. "PaperStore").
+
+        Returns:
+            A string of the form "{project}-{stack_name}-{phase}".
+        """
+        return f"{self.project}-{stack_name}-{self.phase}"
