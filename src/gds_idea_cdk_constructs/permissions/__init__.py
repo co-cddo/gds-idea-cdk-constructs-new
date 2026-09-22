@@ -1,4 +1,5 @@
 from .athena import (
+    grant_athena,
     grant_athena_results_access,
     grant_athena_workgroup_access,
     grant_glue_catalog_access,
@@ -13,6 +14,7 @@ from .settings import AthenaSettings
 
 __all__ = [
     "AthenaSettings",
+    "grant_athena",
     "grant_athena_results_access",
     "grant_athena_workgroup_access",
     "grant_bedrock_invoke_model_access",
