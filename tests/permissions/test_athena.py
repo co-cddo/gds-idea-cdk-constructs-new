@@ -6,6 +6,7 @@ from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.config import DeploymentEnvironment
 from gds_idea_cdk_constructs.permissions.athena import (
+    grant_athena,
     grant_athena_results_access,
     grant_athena_workgroup_access,
     grant_glue_catalog_access,
@@ -52,9 +53,9 @@ def athena_settings():
     )
 
 
-def test_grant_athena_workgroup_access_default(test_stack, grantee):
+def test_grant_athena_workgroup_access_default(test_stack, grantee, athena_settings):
     """Test the default workgroup access statement."""
-    grant_athena_workgroup_access(grantee, test_stack)
+    grant_athena_workgroup_access(grantee, athena_settings)
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -82,10 +83,12 @@ def test_grant_athena_workgroup_access_default(test_stack, grantee):
     )
 
 
-def test_grant_athena_workgroup_access_custom_workgroup_and_region(test_stack, grantee):
+def test_grant_athena_workgroup_access_custom_workgroup_and_region(
+    test_stack, grantee, athena_settings
+):
     """Test overriding the workgroup name and region."""
     grant_athena_workgroup_access(
-        grantee, test_stack, workgroup_name="custom", region="us-east-1"
+        grantee, athena_settings, workgroup_name="custom", region="us-east-1"
     )
     template = Template.from_stack(test_stack)
 
@@ -110,9 +113,9 @@ def test_grant_athena_workgroup_access_custom_workgroup_and_region(test_stack, g
     )
 
 
-def test_grant_athena_workgroup_access_with_sid(test_stack, grantee):
+def test_grant_athena_workgroup_access_with_sid(test_stack, grantee, athena_settings):
     """Test that a provided sid is included on the statement."""
-    grant_athena_workgroup_access(grantee, test_stack, sid="MyWorkgroupSid")
+    grant_athena_workgroup_access(grantee, athena_settings, sid="MyWorkgroupSid")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -127,9 +130,11 @@ def test_grant_athena_workgroup_access_with_sid(test_stack, grantee):
     )
 
 
-def test_grant_athena_workgroup_access_omits_sid_by_default(test_stack, grantee):
+def test_grant_athena_workgroup_access_omits_sid_by_default(
+    test_stack, grantee, athena_settings
+):
     """Test that no Sid is set when not provided."""
-    grant_athena_workgroup_access(grantee, test_stack)
+    grant_athena_workgroup_access(grantee, athena_settings)
     template = Template.from_stack(test_stack)
     policy = template.find_resources("AWS::IAM::Policy")
     statement = next(iter(policy.values()))["Properties"]["PolicyDocument"][
@@ -139,9 +144,9 @@ def test_grant_athena_workgroup_access_omits_sid_by_default(test_stack, grantee)
     assert "Sid" not in statement
 
 
-def test_grant_glue_catalog_access_default(test_stack, grantee):
+def test_grant_glue_catalog_access_default(test_stack, grantee, athena_settings):
     """Test the default Glue catalog access statement."""
-    grant_glue_catalog_access(grantee, test_stack, "my_database")
+    grant_glue_catalog_access(grantee, athena_settings, "my_database")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -340,3 +345,264 @@ def test_grant_athena_results_access_sid_prefix_builds_two_sids(
             }
         },
     )
+
+
+def test_grant_athena_composes_all_four_statements(
+    test_stack, grantee, athena_settings
+):
+    """Test that grant_athena grants workgroup, glue, data bucket, and results."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    statements = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+
+    # Workgroup, Glue, data bucket, results bucket, KMS = 5 statements.
+    assert len(statements) == 5
+
+    actions = [s["Action"] for s in statements]
+    assert any(
+        isinstance(a, list) and "athena:StartQueryExecution" in a for a in actions
+    )
+    assert any(isinstance(a, list) and "glue:GetTable" in a for a in actions)
+    assert any(isinstance(a, list) and "kms:Decrypt" in a for a in actions)
+
+
+def test_grant_athena_uses_default_workgroup(test_stack, grantee, athena_settings):
+    """Test that grant_athena defaults to the shared 'primary' workgroup."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Resource": (
+                                    "arn:aws:athena:eu-west-2:992382722318"
+                                    ":workgroup/primary"
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_grants_glue_catalog_for_database(
+    test_stack, grantee, athena_settings
+):
+    """Test that grant_athena grants Glue access scoped to the database."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Action": Match.array_with(["glue:GetTable"]),
+                                "Resource": Match.array_with(
+                                    [
+                                        "arn:aws:glue:eu-west-2:992382722318"
+                                        ":database/my_database"
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_grants_data_bucket_access(test_stack, grantee, athena_settings):
+    """Test that grant_athena grants access to the given data bucket."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Resource": [
+                                    "arn:aws:s3:::my-data-bucket",
+                                    "arn:aws:s3:::my-data-bucket/*",
+                                ],
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_write_defaults_to_true(test_stack, grantee, athena_settings):
+    """Test that write defaults to True, granting write access to the data bucket."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Resource": [
+                                    "arn:aws:s3:::my-data-bucket",
+                                    "arn:aws:s3:::my-data-bucket/*",
+                                ],
+                                "Action": Match.array_with(["s3:PutObject"]),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_write_false_omits_data_bucket_write(
+    test_stack, grantee, athena_settings
+):
+    """Test that write=False omits write actions on the data bucket only."""
+    grant_athena(
+        grantee,
+        "my_database",
+        "my-data-bucket",
+        athena_settings,
+        write=False,
+    )
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    statements = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+    data_bucket_statement = next(
+        s
+        for s in statements
+        if s.get("Resource")
+        == ["arn:aws:s3:::my-data-bucket", "arn:aws:s3:::my-data-bucket/*"]
+    )
+
+    assert "s3:PutObject" not in data_bucket_statement["Action"]
+
+
+def test_grant_athena_results_bucket_always_writable_regardless_of_write_flag(
+    test_stack, grantee, athena_settings
+):
+    """Test that write=False still grants write on the results bucket."""
+    grant_athena(
+        grantee,
+        "my_database",
+        "my-data-bucket",
+        athena_settings,
+        write=False,
+    )
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    statements = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+    results_bucket_statement = next(
+        s
+        for s in statements
+        if s.get("Resource")
+        == [
+            "arn:aws:s3:::gds-idea-athena-query-results-development",
+            "arn:aws:s3:::gds-idea-athena-query-results-development/*",
+        ]
+    )
+
+    assert "s3:PutObject" in results_bucket_statement["Action"]
+
+
+def test_grant_athena_custom_workgroup_and_region(test_stack, grantee, athena_settings):
+    """Test that workgroup_name and region overrides are forwarded."""
+    grant_athena(
+        grantee,
+        "my_database",
+        "my-data-bucket",
+        athena_settings,
+        workgroup_name="custom",
+        region="us-east-1",
+    )
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Resource": (
+                                    "arn:aws:athena:us-east-1:992382722318"
+                                    ":workgroup/custom"
+                                ),
+                            }
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_sid_prefix_builds_all_sids(test_stack, grantee, athena_settings):
+    """Test that sid_prefix names all composed statements."""
+    grant_athena(
+        grantee,
+        "my_database",
+        "my-data-bucket",
+        athena_settings,
+        sid_prefix="MyTable",
+    )
+    template = Template.from_stack(test_stack)
+
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like({"Sid": "MyTableWorkgroupAccess"}),
+                        Match.object_like({"Sid": "MyTableGlueAccess"}),
+                        Match.object_like({"Sid": "MyTableDataBucketAccess"}),
+                        Match.object_like({"Sid": "MyTableBucketAccess"}),
+                        Match.object_like({"Sid": "MyTableKmsAccess"}),
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_grant_athena_omits_sids_by_default(test_stack, grantee, athena_settings):
+    """Test that no Sid is set on any composed statement when not provided."""
+    grant_athena(grantee, "my_database", "my-data-bucket", athena_settings)
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    statements = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+
+    assert all("Sid" not in s for s in statements)
