@@ -352,7 +352,7 @@ from gds_idea_cdk_constructs.permissions import (
 # Read a secret whose name starts with "my-app/"
 grant_secret_access(webapp.task_role, stack, "my-app/access")
 
-# Invoke any Bedrock foundation model
+# Invoke any Bedrock foundation model or inference profile
 grant_bedrock_invoke_model_access(webapp.task_role, stack)
 
 # Read/write a DynamoDB table (including its Global/Local Secondary Indexes)
@@ -362,25 +362,14 @@ grant_dynamodb_table_access(webapp.task_role, stack, "my-table", write=True)
 ### Athena, Glue, S3, and KMS
 
 ```python
-from gds_idea_cdk_constructs.permissions import (
-    AthenaSettings,
-    grant_athena_workgroup_access,
-    grant_athena_results_access,
-    grant_glue_catalog_access,
-    grant_kms_key_access,
-    grant_s3_bucket_access,
-)
-
-grant_athena_workgroup_access(webapp.task_role, stack)
-grant_glue_catalog_access(webapp.task_role, stack, "my_database")
-grant_s3_bucket_access(webapp.task_role, "my-data-bucket")
-
-# Composite helper: grants the environment's Athena query-results bucket + KMS key
+from gds_idea_cdk_constructs.permissions import AthenaSettings, grant_athena
 athena_settings = AthenaSettings(cdk_env)
-grant_athena_results_access(webapp.task_role, athena_settings)
+grant_athena(webapp.task_role, "my_database", "my-data-bucket", athena_settings)
 ```
 
 `AthenaSettings` fetches the current environment's Athena query results bucket name and KMS key ARN from the `/gds-idea-athena` SSM parameter (mirrors `DeploymentConfig`'s fetch pattern, kept separate since it's permissions-specific). Use `AthenaSettings.from_dict(environment, config)` in tests or local development to avoid a real Parameter Store call.
+
+If you need finer-grained control (e.g. only Glue access, or a different combination), the individual grant helpers `grant_athena_workgroup_access`, `grant_glue_catalog_access`, `grant_s3_bucket_access`, `grant_kms_key_access`, and `grant_athena_results_access` (the S3 + KMS composite for the results bucket alone) are all available too. `grant_athena_workgroup_access` and `grant_glue_catalog_access` also take an `athena_settings` (instead of `stack`), which provides the account/region used to build their ARNs.
 
 ### rAPId database access
 
@@ -390,7 +379,6 @@ from gds_idea_cdk_constructs.permissions import AthenaSettings, grant_rapid_data
 athena_settings = AthenaSettings(cdk_env)
 grant_rapid_database_access(
     webapp.task_role,
-    stack,
     deployment_config,
     athena_settings,
     secret_name="my-app/rapid",
@@ -405,13 +393,14 @@ In production, grants direct access to rAPId's Athena workgroup, Glue catalog, d
 
 | Function | Grants | Key parameters |
 |---|---|---|
+| `grant_athena` | Composite: workgroup + Glue catalog + S3 data bucket + Athena results access for a table | `database_name`, `bucket_name`, `athena_settings`, `write=True`, `table_name_pattern="*"`, `workgroup_name="primary"`, `sid_prefix` |
 | `grant_athena_workgroup_access` | Run/manage Athena queries in a workgroup | `workgroup_name="primary"`, `region` |
 | `grant_glue_catalog_access` | Read a Glue database and its tables | `database_name`, `table_name_pattern="*"`, `region` |
 | `grant_s3_bucket_access` | Read (or read/write) an S3 bucket | `bucket_name`, `write=False` |
 | `grant_kms_key_access` | Decrypt/encrypt with a KMS key | `key_arn` |
 | `grant_athena_results_access` | Composite: S3 + KMS access to the environment's Athena results | `athena_settings`, `write=True`, `sid_prefix` |
 | `grant_secret_access` | Read secrets matching a name prefix | `secret_name_prefix` |
-| `grant_bedrock_invoke_model_access` | Invoke Bedrock foundation models | `model_ids=None` (all models) |
+| `grant_bedrock_invoke_model_access` | Invoke Bedrock foundation models and inference profiles | `model_ids=None` (all foundation models), `inference_profile_ids=None` (all inference profiles) |
 | `grant_dynamodb_table_access` | Read (or read/write) a DynamoDB table and its indexes | `table_name`, `write=False`, `include_indexes=True`, `region` |
 | `grant_rapid_database_access` | Composite: query rAPId's shared database (direct in prod, assumed-role elsewhere) | `deployment_config`, `athena_settings`, `secret_name` |
 
