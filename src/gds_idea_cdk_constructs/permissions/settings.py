@@ -57,13 +57,14 @@ class AthenaSettings:
             )
         region = cdk_env.region or DEFAULT_REGION
         config = self._fetch_from_parameter_store(region)
-        self._apply_config(environment, config)
+        self._apply_config(environment, config, region)
 
     @classmethod
     def from_dict(
         cls,
         environment: DeploymentEnvironment,
         config: dict[str, dict[str, str]],
+        region: str = DEFAULT_REGION,
     ) -> "AthenaSettings":
         """Create AthenaSettings from an explicit config dict.
 
@@ -74,24 +75,27 @@ class AthenaSettings:
             environment: The environment to select settings for.
             config: Dict keyed by account ID, matching the shape stored in
                 Parameter Store.
+            region: AWS region these settings apply to.
 
         Returns:
             A configured AthenaSettings instance.
         """
         instance = object.__new__(cls)
-        instance._apply_config(environment, config)
+        instance._apply_config(environment, config, region)
         return instance
 
     def _apply_config(
         self,
         environment: DeploymentEnvironment,
         config: dict[str, dict[str, str]],
+        region: str,
     ) -> None:
         """Select this environment's settings and set attributes.
 
         Args:
             environment: The environment to select settings for.
             config: Dict keyed by account ID.
+            region: AWS region these settings apply to.
 
         Raises:
             ValueError: If there is no config for this environment's account.
@@ -104,6 +108,8 @@ class AthenaSettings:
                 f"(account {environment.value})"
             ) from e
 
+        self.account = environment.value
+        self.region = region
         self.results_bucket_name = env_config["results_bucket_name"]
         self.kms_key_arn = env_config["kms_key_arn"]
 
