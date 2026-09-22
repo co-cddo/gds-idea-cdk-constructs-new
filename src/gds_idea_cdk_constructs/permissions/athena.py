@@ -3,18 +3,18 @@
 IAM policy statements to a task role for running Athena queries,
 reading Glue Data Catalog metadata, reading S3 data buckets,
 and decrypting with KMS keys.
-`grant_athena_results_access` sets up the S3 + KMS helpers using an `AthenaSettings`
-instance so that
+`grant_athena` composes everything into a single call for full access
+to an Athena-backed table.
 """
 
-from aws_cdk import Stack, aws_iam as iam
+from aws_cdk import aws_iam as iam
 
 from .settings import ATHENA_WORKGROUP_NAME, AthenaSettings
 
 
 def grant_athena_workgroup_access(
     grantee: iam.IGrantable,
-    stack: Stack,
+    athena_settings: AthenaSettings,
     *,
     workgroup_name: str = ATHENA_WORKGROUP_NAME,
     region: str | None = None,
@@ -25,16 +25,18 @@ def grant_athena_workgroup_access(
     Args:
         grantee: The IAM principal to grant permissions to (e.g. a Role,
             Lambda Function, EC2 Instance, ECS Service, etc.).
-        stack: The stack used to resolve region/account for the ARN.
+        athena_settings: Resolved settings for the current environment
+            (see `AthenaSettings`), used to resolve region/account for the
+            ARN.
         workgroup_name: Athena workgroup name. Defaults to the shared
             "primary" workgroup used in both dev and prod.
         region: Overrides the region in the workgroup ARN. Defaults to
-            `stack.region`.
+            `athena_settings.region`.
         sid: Optional statement ID. Omitted by default; a `Sid` only needs
             to be unique within a policy document if one is set, so this
             is safe to call multiple times on the same role.
     """
-    resolved_region = region or stack.region
+    resolved_region = region or athena_settings.region
     grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
@@ -46,7 +48,7 @@ def grant_athena_workgroup_access(
                 "athena:StopQueryExecution",
             ],
             resources=[
-                f"arn:aws:athena:{resolved_region}:{stack.account}"
+                f"arn:aws:athena:{resolved_region}:{athena_settings.account}"
                 f":workgroup/{workgroup_name}"
             ],
         )
@@ -55,7 +57,7 @@ def grant_athena_workgroup_access(
 
 def grant_glue_catalog_access(
     grantee: iam.IGrantable,
-    stack: Stack,
+    athena_settings: AthenaSettings,
     database_name: str,
     *,
     table_name_pattern: str = "*",
@@ -67,17 +69,19 @@ def grant_glue_catalog_access(
     Args:
         grantee: The IAM principal to grant permissions to (e.g. a Role,
             Lambda Function, EC2 Instance, ECS Service, etc.).
-        stack: The stack used to resolve region/account for the ARN.
+        athena_settings: Resolved settings for the current environment
+            (see `AthenaSettings`), used to resolve region/account for the
+            ARNs.
         database_name: The Glue database name.
         table_name_pattern: Table name, or wildcard pattern, to scope
             access to.
         region: Overrides the region in the ARNs. Defaults to
-            `stack.region`.
+            `athena_settings.region`.
         sid: Optional statement ID. Omitted by default; a `Sid` only needs
             to be unique within a policy document if one is set, so this
             is safe to call multiple times on the same role.
     """
-    resolved_region = region or stack.region
+    resolved_region = region or athena_settings.region
     grantee.grant_principal.add_to_principal_policy(
         iam.PolicyStatement(
             **({"sid": sid} if sid else {}),
@@ -89,10 +93,10 @@ def grant_glue_catalog_access(
                 "glue:GetPartitions",
             ],
             resources=[
-                f"arn:aws:glue:{resolved_region}:{stack.account}:catalog",
-                f"arn:aws:glue:{resolved_region}:{stack.account}"
+                f"arn:aws:glue:{resolved_region}:{athena_settings.account}:catalog",
+                f"arn:aws:glue:{resolved_region}:{athena_settings.account}"
                 f":database/{database_name}",
-                f"arn:aws:glue:{resolved_region}:{stack.account}"
+                f"arn:aws:glue:{resolved_region}:{athena_settings.account}"
                 f":table/{database_name}/{table_name_pattern}",
             ],
         )
@@ -194,3 +198,64 @@ def grant_athena_results_access(
         athena_settings.kms_key_arn,
         sid=f"{sid_prefix}KmsAccess" if sid_prefix else None,
     )
+
+
+def grant_athena(
+    grantee: iam.IGrantable,
+    database_name: str,
+    bucket_name: str,
+    athena_settings: AthenaSettings,
+    *,
+    table_name_pattern: str = "*",
+    workgroup_name: str = ATHENA_WORKGROUP_NAME,
+    write: bool = True,
+    region: str | None = None,
+    sid_prefix: str | None = None,
+) -> None:
+    """Grant everything needed to query an Athena-backed table.
+
+    Args:
+        grantee: The IAM principal to grant permissions to (e.g. a Role,
+            Lambda Function, EC2 Instance, ECS Service, etc.).
+        database_name: The Glue database name.
+        bucket_name: The S3 bucket backing the table's data.
+        athena_settings: Resolved settings for the current environment
+            (see `AthenaSettings`), providing the results bucket name and
+            KMS key ARN, as well as the account/region used to resolve
+            the Athena workgroup and Glue catalog ARNs.
+        table_name_pattern: Table name, or wildcard pattern, to scope Glue
+            access to.
+        workgroup_name: Athena workgroup name. Defaults to the shared
+            "primary" workgroup
+        write: If True (default), also grant write access to the data
+            bucket (e.g. for `INSERT INTO`/CTAS queries). The query
+            results bucket is always granted write access since Athena
+            always needs to write its own results.
+        region: Overrides the region in the ARNs. Defaults to
+            `athena_settings.region`.
+        sid_prefix: Optional prefix used to build the composed statements'
+            Sids (`{sid_prefix}WorkgroupAccess`, `{sid_prefix}GlueAccess`,
+            `{sid_prefix}DataBucketAccess`. Only set if you want named statements.
+    """
+    grant_athena_workgroup_access(
+        grantee,
+        athena_settings,
+        workgroup_name=workgroup_name,
+        region=region,
+        sid=f"{sid_prefix}WorkgroupAccess" if sid_prefix else None,
+    )
+    grant_glue_catalog_access(
+        grantee,
+        athena_settings,
+        database_name,
+        table_name_pattern=table_name_pattern,
+        region=region,
+        sid=f"{sid_prefix}GlueAccess" if sid_prefix else None,
+    )
+    grant_s3_bucket_access(
+        grantee,
+        bucket_name,
+        write=write,
+        sid=f"{sid_prefix}DataBucketAccess" if sid_prefix else None,
+    )
+    grant_athena_results_access(grantee, athena_settings, sid_prefix=sid_prefix)
