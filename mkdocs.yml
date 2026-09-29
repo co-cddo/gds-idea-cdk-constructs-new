@@ -35,6 +35,7 @@ nav:
   - Getting Started: getting-started.md
   - API Reference:
       - Configuration: api/config.md
+      - Tagging: api/tagging.md
       - WebApp Stack: api/webapp.md
       - Static Site: api/static-site.md
       - Authentication: api/auth.md
