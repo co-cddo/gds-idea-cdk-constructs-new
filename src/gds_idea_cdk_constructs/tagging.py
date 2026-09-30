@@ -33,7 +33,24 @@ _RESERVED_KEYS = frozenset(
     {"Environment", "ManagedBy", "Repository", "AppName", "Owner"}
 )
 
-_PLACEHOLDERS = frozenset({"tba", "tbc", "todo", "changeme", "xxx"})
+_PLACEHOLDERS = frozenset(
+    {
+        "tba",
+        "tbc",
+        "tbd",
+        "todo",
+        "changeme",
+        "xxx",
+        "example",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "unknown",
+        "your name",
+        "your team",
+    }
+)
 
 # Bare repository name, e.g. "gds-idea-app-example" (no org prefix). GitHub is
 # case-insensitive so case is not enforced. URLs, "org/repo" and ".git" suffixes

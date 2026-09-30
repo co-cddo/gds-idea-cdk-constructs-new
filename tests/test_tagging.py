@@ -14,7 +14,7 @@ DEV = DeploymentEnvironment.DEVELOPMENT
 
 def _make(**overrides) -> IdeaTags:
     """Build an IdeaTags with valid defaults, overriding any field."""
-    kwargs = {"environment": DEV, "app_name": "example", "repository": REPO}
+    kwargs = {"environment": DEV, "app_name": "example-app", "repository": REPO}
     kwargs.update(overrides)
     return IdeaTags(**kwargs)
 
@@ -48,7 +48,7 @@ def test_idea_tags_resolves_all_tags():
         "Environment": "development",
         "ManagedBy": "cdk",
         "Repository": REPO,
-        "AppName": "example",
+        "AppName": "example-app",
         "Owner": "Alice Example",
     }
 
@@ -77,7 +77,7 @@ def test_idea_tags_includes_extra_tags():
     tags = _make(extra_tags={"Name": "Example App"}).tags
 
     assert tags["Name"] == "Example App"
-    assert tags["AppName"] == "example"
+    assert tags["AppName"] == "example-app"
 
 
 def test_idea_tags_is_frozen():
@@ -136,6 +136,57 @@ def test_idea_tags_rejects_empty_app_name():
 
 
 @pytest.mark.parametrize(
+    "placeholder",
+    [
+        "TBA",
+        "tba",
+        "TBC",
+        "TBD",
+        "todo",
+        "TODO",
+        "changeme",
+        "xxx",
+        "example",
+        "Example",
+        "n/a",
+        "N/A",
+        "na",
+        "NA",
+        "none",
+        "None",
+        "null",
+        "unknown",
+        "Your Name",
+        "your team",
+        "  tba  ",
+    ],
+)
+def test_idea_tags_rejects_placeholder_values(placeholder):
+    """Test that common placeholder values, including AI-written stand-ins,
+    are rejected wherever a value is expected: repository, owners and
+    extra_tags.
+    """
+    with pytest.raises(ValueError, match=r"placeholder"):
+        _make(repository=placeholder)
+    with pytest.raises(ValueError, match=r"placeholder"):
+        _make(owners=[placeholder])
+    with pytest.raises(ValueError, match=r"placeholder"):
+        _make(extra_tags={"Name": placeholder})
+
+
+def test_idea_tags_placeholder_check_does_not_reject_substrings():
+    """Test that values merely containing a placeholder word are still valid."""
+    tags = _make(
+        app_name="my-app",
+        repository="gds-idea-app-example",
+        owners=["Alice Example"],
+    ).tags
+
+    assert tags["Repository"] == "gds-idea-app-example"
+    assert tags["Owner"] == "Alice Example"
+
+
+@pytest.mark.parametrize(
     "key", ["Environment", "ManagedBy", "Repository", "AppName", "Owner"]
 )
 def test_idea_tags_rejects_extra_tag_overriding_standard(key):
@@ -175,7 +226,7 @@ def test_idea_tags_apply_tags_the_stack(app_with_bucket):
     _make().apply(app_with_bucket)
 
     artifact = app_with_bucket.synth().get_stack_by_name("TestStack")
-    assert artifact.tags["AppName"] == "example"
+    assert artifact.tags["AppName"] == "example-app"
     assert artifact.tags["ManagedBy"] == "cdk"
 
 
@@ -190,7 +241,7 @@ def test_idea_tags_can_be_applied_to_a_single_stack():
     _make().apply(tagged)
 
     assembly = app.synth()
-    assert assembly.get_stack_by_name("Tagged").tags["AppName"] == "example"
+    assert assembly.get_stack_by_name("Tagged").tags["AppName"] == "example-app"
     assert "AppName" not in assembly.get_stack_by_name("Other").tags
 
 
