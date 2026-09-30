@@ -154,4 +154,4 @@ def create_listener_action(self, scope: Construct) -> elbv2.ListenerAction:
 
 ### Commit Messages
 
-Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `test:`, `refactor:`. Bump version in `pyproject.toml` for PRs to `main` (semver: patch for fixes, minor for features, major for breaking changes).
+Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `test:`, `refactor:`. The version comes from git tags (hatch-vcs), so do not edit it by hand. Set the bump with a PR label: `bump:major` for breaking changes, `bump:minor` for features, no label for a patch (fixes). See `CONTRIBUTING.md`.

@@ -8,6 +8,22 @@ This simplifies the deployment of containerised applications in the gds-idea tea
 It is not designed to be used directly but it is a dependency managed by [gds-idea-app-kit](https://github.com/co-cddo/gds-idea-app-kit).
 For instructions on usage please see the docs for gds-idea-app-kit.
 
+## Tagging
+
+`IdeaTags` applies the standard GDS IDEA tags (`Environment`, `ManagedBy`, `Repository`, `AppName` and optionally `Owner`) to every stack and resource in an app.
+Values are validated on creation, so a placeholder such as `TBA`, a repository that is not a bare repo name, or a comma in an owner fails immediately.
+
+```python
+from gds_idea_cdk_constructs import IdeaTags
+
+IdeaTags(
+    environment=dep_config.environment,
+    app_name=app_config.app_name,
+    repository="gds-idea-app-example",
+    owners=["Alice Example", "Bob Example"],  # optional, names not emails, joined with "+"
+).apply(app)
+```
+
 ## AgentCore
 
 Deploys an [Amazon Bedrock AgentCore](https://docs.aws.amazon.com/bedrock/latest/userguide/agentcore.html) runtime with memory, permissions, and observability pre-configured. The built-in agent uses Strands Agent Framework.
