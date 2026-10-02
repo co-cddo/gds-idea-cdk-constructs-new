@@ -1,1 +1,3 @@
-cognito-auth
+# >=0.5.4: honours COGNITO_AUTH_USER_POOL_ID / _CLIENT_IDS / _ALB_ARNS, which
+# make token verification trust only this app's user pool, client and ALB.
+cognito-auth>=0.5.4

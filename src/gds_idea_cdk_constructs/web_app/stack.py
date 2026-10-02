@@ -263,6 +263,12 @@ class WebApp(BaseWebStack):
 
         self._setup_alb_and_listeners(self.target_group)
 
+        # The ALB ARN (for cognito-auth's signer pin) isn't known until now.
+        for name, value in self._auth_strategy.get_load_balancer_environment_variables(
+            self.load_balancer.load_balancer_arn
+        ).items():
+            self.container.add_environment(name, value)
+
     def _create_outputs(self) -> None:
         """Create base outputs and delegate to the strategy for specific outputs."""
         CfnOutput(

@@ -214,9 +214,38 @@ GET /.auth/user
 This endpoint:
 
 - Returns user claims via `cognito-auth` (includes groups from the Cognito access token)
+- Trusts only this app's Cognito user pool, app client and ALB (`COGNITO_AUTH_*` env vars, set automatically)
 - Sets `Cache-Control: no-store` (never cached)
 - Returns `404` for `AuthType.NONE` (no authentication configured)
 - Does not require an additional authentication step (ALB already authenticated the user)
+
+## Adding API routes (`add_lambda_route`)
+
+Apps often need a few server-side endpoints alongside the static site, for example to issue presigned S3 URLs. `add_lambda_route` routes a path on the site's own ALB to a Lambda function, behind the same authentication action and login session:
+
+```python
+site = StaticSite(app, dep_config, app_config, authentication=AuthType.INTERNAL_ACCESS, ...)
+
+site.add_lambda_route(
+    backend_stack,                 # where to create the route (any stack)
+    "AdminRoute",
+    function=admin_lambda,
+    path_patterns=["/api/admin/*"],
+    priority=11,
+)
+```
+
+The function receives the verified `x-amzn-oidc-*` headers. Verify them with `cognito-auth` (`LambdaAuth`), and do your own authorisation: the ALB only proves the caller signed in.
+
+`add_lambda_route` also:
+
+- **Scopes the function's ELB invoke permission** to target groups in its own account. CDK's `LambdaTarget` on its own lets *any* load balancer in *any* AWS account invoke the function, and the function trusts the identity headers.
+- **Sets `COGNITO_AUTH_USER_POOL_ID`, `COGNITO_AUTH_CLIENT_IDS` and `COGNITO_AUTH_ALB_ARNS`** on the function (pass `pin_cognito_auth=False` to skip), so `cognito-auth` only trusts this app's pool, client and ALB. Use `site.cognito_pin_environment_variables()` to get the same values for other compute.
+
+If `scope` is a different stack from the site, the target group and listener rule are created *there*, on an imported listener. The dependency then only points from your stack to the site. Creating the rule in the site's stack while your function reads the site's ALB or client ID would be a circular cross-stack reference.
+
+!!! note
+    Use a priority that isn't already taken on the listener. If you are moving an existing rule from the site's stack to another stack, deploy the site stack first (CDK does this automatically for `cdk deploy --all`) so the old rule is removed before the new one is created; `/api/...` is briefly unrouted in between.
 
 ## Clean Builds
 
