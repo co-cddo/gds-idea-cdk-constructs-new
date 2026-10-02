@@ -10,6 +10,9 @@ Environment variables:
     INDEX_DOCUMENT: Default document for directory requests (e.g. 'index.html')
     ERROR_DOCUMENT: Document to serve for 404s (optional)
     COGNITO_AUTH_SECRET_NAME: Secret name for authZ checks (unset for public sites)
+    COGNITO_AUTH_USER_POOL_ID, COGNITO_AUTH_CLIENT_IDS, COGNITO_AUTH_ALB_ARNS:
+        Set by the stack for authenticated sites. cognito-auth (>=0.5.4) then
+        trusts only tokens from this app's user pool, app client and ALB.
     CACHE_MAX_SIZE: Max number of S3 objects to cache in memory (default: 128)
 """
 

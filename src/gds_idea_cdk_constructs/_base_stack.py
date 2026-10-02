@@ -18,9 +18,11 @@ from aws_cdk import (
     aws_wafv2 as wafv2,
     custom_resources as cr,
 )
+from aws_cdk.aws_elasticloadbalancingv2_targets import LambdaTarget
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
+from ._lambda_targets import is_in_stack, scope_elb_invoke_permission
 from .config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from .web_app._auth_strategies import AUTH_STRATEGY_MAP, AuthType, IAuthStrategy
 
@@ -192,6 +194,116 @@ class BaseWebStack(Stack):
         )
 
         self.load_balancer.node.add_dependency(self.certificate)
+
+    # Env vars that tell cognito-auth which user pool / app client / ALB to
+    # trust. Everything else the strategy emits (e.g. the authorisation secret
+    # name) is specific to this app and is not re-exported.
+    _COGNITO_PIN_ENV_VARS = ("COGNITO_AUTH_USER_POOL_ID", "COGNITO_AUTH_CLIENT_IDS")
+
+    def cognito_pin_environment_variables(self) -> dict[str, str]:
+        """Env vars that pin ``cognito-auth`` to this app's pool, client and ALB.
+
+        Put these on any Lambda or container that verifies this app's ALB
+        tokens, otherwise ``cognito-auth`` accepts tokens from any Cognito
+        user pool and any AWS load balancer. ``add_lambda_route`` does this
+        for you. Empty for apps with no authentication.
+
+        Only valid once the load balancer exists.
+        """
+        pins = {
+            name: value
+            for name, value in self._auth_strategy.get_environment_variables().items()
+            if name in self._COGNITO_PIN_ENV_VARS
+        }
+        pins.update(
+            self._auth_strategy.get_load_balancer_environment_variables(
+                self.load_balancer.load_balancer_arn
+            )
+        )
+        return pins
+
+    def add_lambda_route(
+        self,
+        scope: Construct,
+        route_id: str,
+        *,
+        function: _lambda.Function,
+        path_patterns: list[str],
+        priority: int,
+        pin_cognito_auth: bool = True,
+    ) -> elbv2.ApplicationTargetGroup:
+        """Route ``path_patterns`` on this app's ALB to a Lambda function.
+
+        The route goes through this app's own authentication action, so it
+        shares the site's login and session. The function receives the
+        verified ``x-amzn-oidc-*`` headers; verify them with ``cognito-auth``.
+
+        The function may live in another stack (pass that stack, or a
+        construct in it, as ``scope``). Everything the route needs is then
+        created in that stack, on an imported listener, so the dependency
+        only ever points from that stack to this one. Referencing resources
+        of the other stack from this one would make the dependency circular.
+
+        This also:
+
+        - scopes the function's ELB invoke permission to target groups in its
+          own account (see ``scope_elb_invoke_permission``), and
+        - sets the ``COGNITO_AUTH_*`` pin env vars on the function, so
+          ``cognito-auth`` only trusts this app's user pool, app client and ALB
+          (disable with ``pin_cognito_auth=False``).
+
+        Args:
+            scope: Construct (typically a stack) to create the route in.
+            route_id: Unique id for the route within ``scope``.
+            function: The Lambda function to route to.
+            path_patterns: ALB path patterns, e.g. ``["/api/admin/*"]``.
+            priority: Listener rule priority. Must be unique on the listener.
+            pin_cognito_auth: Add the ``COGNITO_AUTH_*`` pin env vars.
+
+        Returns:
+            The Lambda target group.
+        """
+        target_group = elbv2.ApplicationTargetGroup(
+            scope,
+            f"{route_id}TargetGroup",
+            vpc=self.vpc,
+            target_type=elbv2.TargetType.LAMBDA,
+            targets=[LambdaTarget(function)],
+        )
+        scope_elb_invoke_permission(function)
+
+        if pin_cognito_auth:
+            for name, value in self.cognito_pin_environment_variables().items():
+                function.add_environment(name, value)
+
+        conditions = [elbv2.ListenerCondition.path_patterns(path_patterns)]
+        action = self._auth_strategy.create_listener_action(target_group)
+
+        if is_in_stack(scope, self):
+            self.https_listener.add_action(
+                route_id, priority=priority, conditions=conditions, action=action
+            )
+        else:
+            listener = elbv2.ApplicationListener.from_application_listener_attributes(
+                scope,
+                f"{route_id}Listener",
+                listener_arn=self.https_listener.listener_arn,
+                security_group=ec2.SecurityGroup.from_security_group_id(
+                    scope,
+                    f"{route_id}ListenerSecurityGroup",
+                    self.load_balancer.connections.security_groups[0].security_group_id,
+                ),
+            )
+            elbv2.ApplicationListenerRule(
+                scope,
+                route_id,
+                listener=listener,
+                priority=priority,
+                conditions=conditions,
+                action=action,
+            )
+
+        return target_group
 
     def _setup_dns_record(self) -> None:
         """Create A record pointing the subdomain to the ALB."""

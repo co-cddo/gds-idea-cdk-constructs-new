@@ -27,6 +27,7 @@ from aws_cdk.aws_ecr_assets import DockerImageAsset, Platform
 from constructs import Construct
 
 from .._base_stack import BaseWebStack
+from .._lambda_targets import scope_elb_invoke_permission
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from ..web_app._auth_strategies import AuthType
 from .props import StaticSiteProperties
@@ -313,6 +314,16 @@ class StaticSite(BaseWebStack):
         )
 
         self._setup_alb_and_listeners(self.target_group)
+
+        # The serve Lambda enforces the site's allow-list from the identity
+        # headers the ALB adds, so only our own ALB may be able to invoke it.
+        scope_elb_invoke_permission(self.serve_lambda)
+
+        # The ALB ARN (for cognito-auth's signer pin) isn't known until now.
+        for name, value in self._auth_strategy.get_load_balancer_environment_variables(
+            self.load_balancer.load_balancer_arn
+        ).items():
+            self.serve_lambda.add_environment(name, value)
 
     def _setup_build_trigger(self) -> None:
         """Create EventBridge schedule rule if a schedule is configured."""

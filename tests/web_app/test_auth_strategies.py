@@ -162,6 +162,35 @@ def test_cognito_auth_strategy_get_environment_variables(test_stack, deployment_
     assert env_vars["COGNITO_AUTH_SECRET_NAME"] == "testapp/access"
 
 
+def test_cognito_auth_strategy_env_vars_pin_user_pool_and_client(
+    test_stack, deployment_config
+):
+    """cognito-auth only trusts tokens from this pool and this app client."""
+    strategy = CognitoManagedLoginAuthStrategy(test_stack, deployment_config, "testapp")
+    env_vars = strategy.get_environment_variables()
+
+    assert env_vars["COGNITO_AUTH_USER_POOL_ID"] == deployment_config.user_pool_id
+    assert env_vars["COGNITO_AUTH_CLIENT_IDS"] == (
+        strategy.cognito_client.user_pool_client_id
+    )
+
+
+def test_cognito_auth_strategy_load_balancer_env_vars_pin_the_alb(
+    test_stack, deployment_config
+):
+    strategy = CognitoManagedLoginAuthStrategy(test_stack, deployment_config, "testapp")
+
+    assert strategy.get_load_balancer_environment_variables("arn:alb") == {
+        "COGNITO_AUTH_ALB_ARNS": "arn:alb"
+    }
+
+
+def test_no_auth_strategy_has_no_load_balancer_env_vars(test_stack, deployment_config):
+    strategy = NoAuthStrategy(test_stack, deployment_config, "testapp")
+
+    assert strategy.get_load_balancer_environment_variables("arn:alb") == {}
+
+
 def test_cognito_auth_strategy_client_configuration(test_stack, deployment_config):
     """Test that Cognito client is configured correctly."""
     app_name = "testapp"

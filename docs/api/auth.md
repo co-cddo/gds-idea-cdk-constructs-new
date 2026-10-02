@@ -116,9 +116,16 @@ WebApp(
 **Environment variables added to container:**
 ```python
 {
-    "COGNITO_AUTH_SECRET_NAME": "app-name/access"
+    "COGNITO_AUTH_SECRET_NAME": "app-name/access",
+    "COGNITO_AUTH_USER_POOL_ID": "eu-west-2_AbCdEfGhI",
+    "COGNITO_AUTH_CLIENT_IDS": "<this app's Cognito client id>",
+    "COGNITO_AUTH_ALB_ARNS": "<this app's ALB ARN>",
 }
 ```
+
+The last three are read by `cognito-auth` (0.5.4 or later) and make token verification trust only this app's user pool, app client and load balancer. Without them a token signed by any Cognito user pool or any AWS load balancer would verify, so anyone able to reach the app without going through its ALB could present a forged identity. Older `cognito-auth` versions ignore them.
+
+The ALB ARN isn't known until the load balancer exists, so it is added to the container after the rest of the environment is built.
 
 
 ### Authentication Flow (Cognito)

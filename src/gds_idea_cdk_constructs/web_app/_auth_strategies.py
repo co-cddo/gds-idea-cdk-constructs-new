@@ -60,6 +60,20 @@ class IAuthStrategy(ABC):
         """Returns environment variables required by this auth strategy."""
         pass
 
+    def get_load_balancer_environment_variables(
+        self, load_balancer_arn: str
+    ) -> dict[str, str]:
+        """Returns environment variables that depend on the ALB's identity.
+
+        These are separate from ``get_environment_variables`` because the ALB
+        is created after the compute resources that need them, so they have
+        to be added once it exists. Default: none.
+
+        Args:
+            load_balancer_arn: ARN of the ALB that authenticates requests.
+        """
+        return {}
+
 
 class BaseCognitoAuthStrategy(IAuthStrategy):
     """Base class for Cognito-based authentication strategies.
@@ -142,8 +156,24 @@ class BaseCognitoAuthStrategy(IAuthStrategy):
         self._grant_secret_access(role)
 
     def get_environment_variables(self) -> dict[str, str]:
-        """Returns Cognito secret name for the container."""
-        return {"COGNITO_AUTH_SECRET_NAME": f"{self.app_name}/access"}
+        """Returns the Cognito secret name and the user pool / client to trust.
+
+        ``COGNITO_AUTH_USER_POOL_ID`` and ``COGNITO_AUTH_CLIENT_IDS`` make
+        ``cognito-auth`` (>=0.5.4) reject access tokens from any other pool or
+        app client. See ``get_load_balancer_environment_variables`` for the
+        third pin, the ALB.
+        """
+        return {
+            "COGNITO_AUTH_SECRET_NAME": f"{self.app_name}/access",
+            "COGNITO_AUTH_USER_POOL_ID": self.deployment_config.user_pool_id,
+            "COGNITO_AUTH_CLIENT_IDS": self.cognito_client.user_pool_client_id,
+        }
+
+    def get_load_balancer_environment_variables(
+        self, load_balancer_arn: str
+    ) -> dict[str, str]:
+        """Pins the ALB that signs ``x-amzn-oidc-data`` (its ``signer`` header)."""
+        return {"COGNITO_AUTH_ALB_ARNS": load_balancer_arn}
 
     def _grant_secret_access(self, role: iam.IRole) -> None:
         """Helper to grant secret read access to a role."""
