@@ -799,3 +799,107 @@ def test_gateway_tools_parameter_wrong_shape_raises(value):
     context = {_tools_context_key("idea-data"): value}
     with pytest.raises(ValueError, match="must contain a JSON list of strings"):
         _gateway_stack(["wfc"], context)
+
+
+# =============================================================================
+# Runtime role tests
+# =============================================================================
+
+
+def test_runtime_role_name_is_runtime_name_and_region(builtin_default):
+    """The name is predictable, so a gateway's Cedar policy can refer to it."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Role", {"RoleName": "test_agent-eu-west-2"}
+    )
+
+
+def test_runtime_role_can_be_assumed_by_agentcore_for_up_to_8_hours(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Role",
+        {
+            "RoleName": "test_agent-eu-west-2",
+            "MaxSessionDuration": 28800,
+            "AssumeRolePolicyDocument": {
+                "Statement": [
+                    Match.object_like(
+                        {
+                            "Action": "sts:AssumeRole",
+                            "Effect": "Allow",
+                            "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
+                        }
+                    )
+                ]
+            },
+        },
+    )
+
+
+def test_runtime_uses_the_named_role(builtin_default):
+    template = Template.from_stack(builtin_default)
+    role_id = next(
+        logical_id
+        for logical_id, resource in template.find_resources("AWS::IAM::Role").items()
+        if resource["Properties"].get("RoleName") == "test_agent-eu-west-2"
+    )
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {"RoleArn": {"Fn::GetAtt": [role_id, "Arn"]}},
+    )
+
+
+def test_runtime_still_grants_its_own_permissions_to_the_named_role(builtin_default):
+    """Test that the construct's built-in statements are added to a role we supply."""
+    template = Template.from_stack(builtin_default)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [Match.object_like({"Sid": "XRayAccess"})]
+                )
+            },
+            "Roles": [Match.any_value()],
+        },
+    )
+
+
+def test_runtime_role_name_follows_the_stack_region(cdk_app):
+    stack = AgentCore(
+        cdk_app,
+        "OtherRegionStack",
+        props=AgentCoreProperties(runtime_name="test_agent"),
+        env=CdkEnvironment(account="123456789012", region="us-east-1"),
+    )
+    Template.from_stack(stack).has_resource_properties(
+        "AWS::IAM::Role", {"RoleName": "test_agent-us-east-1"}
+    )
+
+
+def test_runtime_role_name_works_without_a_concrete_region(cdk_app):
+    """Test that an environment-agnostic stack resolves the region at deploy time."""
+    stack = AgentCore(
+        cdk_app,
+        "AgnosticStack",
+        props=AgentCoreProperties(runtime_name="test_agent"),
+    )
+    Template.from_stack(stack).has_resource_properties(
+        "AWS::IAM::Role",
+        {"RoleName": {"Fn::Join": ["", ["test_agent-", {"Ref": "AWS::Region"}]]}},
+    )
+
+
+def test_longest_runtime_name_and_region_fit_the_iam_role_name_limit(cdk_app):
+    """Test that a 48-character runtime name in a 14-character region fits in 64."""
+    stack = AgentCore(
+        cdk_app,
+        "LongNameStack",
+        props=AgentCoreProperties(runtime_name="a" * 48),
+        env=CdkEnvironment(account="123456789012", region="ap-southeast-4"),
+    )
+    roles = Template.from_stack(stack).find_resources(
+        "AWS::IAM::Role", {"Properties": {"RoleName": Match.any_value()}}
+    )
+    (role,) = roles.values()
+    assert len(role["Properties"]["RoleName"]) <= 64

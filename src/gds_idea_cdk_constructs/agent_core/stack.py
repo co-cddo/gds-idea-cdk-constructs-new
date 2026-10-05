@@ -3,6 +3,7 @@ import json
 import aws_cdk.aws_bedrock_agentcore_alpha as agentcore
 from aws_cdk import (
     CfnOutput,
+    Duration,
     Stack,
     aws_iam as iam,
     aws_ssm as ssm,
@@ -155,6 +156,18 @@ class AgentCore(Stack):
             platform=props.platform,
         )
 
+        # A fixed role name lets other stacks (e.g. a gateway's Cedar policy)
+        # refer to this role. A generated name changes if the role is replaced.
+        # Same settings as the role the runtime would create for itself.
+        execution_role = iam.Role(
+            self,
+            "AgentCoreRuntimeRole",
+            role_name=f"{props.runtime_name}-{self.region}",
+            assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            description="Execution role for Bedrock Agent Core Runtime",
+            max_session_duration=Duration.hours(8),
+        )
+
         runtime = agentcore.Runtime(
             self,
             "AgentCoreRuntime",
@@ -162,6 +175,7 @@ class AgentCore(Stack):
             agent_runtime_artifact=code_artifact,
             description=props.description,
             environment_variables=env_vars,
+            execution_role=execution_role,
         )
 
         # Expose cross-stack attributes
