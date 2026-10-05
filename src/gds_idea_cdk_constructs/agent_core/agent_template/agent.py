@@ -19,6 +19,7 @@ from strands.models import BedrockModel
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
 from _config import Config
+from _gateway import create_gateway_clients
 from _session import AgentSession
 
 # --- Configuration (injected via CDK environment variables) ---
@@ -42,6 +43,13 @@ if KB_ID:
     from strands_tools import retrieve
     tools = [retrieve]
     logger.info("KB retrieval tool enabled (KB_ID=%s)", KB_ID)
+
+if config.gateway_urls:
+    logger.info(
+        "Gateway tools enabled (Gateways=%d, Targets=%s)",
+        len(config.gateway_urls),
+        list(config.gateway_targets) if config.gateway_targets is not None else "all",
+    )
 
 
 
@@ -165,7 +173,14 @@ def create_agent(history: list[dict]) -> Agent:
         ),
         system_prompt=build_system_prompt(),
         messages=history,
-        tools=tools,
+        # The agent owns these connections: Strands opens them here and closes
+        # them in agent.cleanup(), when AgentSession replaces the agent.
+        tools=[
+            *tools,
+            *create_gateway_clients(
+                config.gateway_urls, config.region, config.gateway_targets
+            ),
+        ],
     )
 
 
