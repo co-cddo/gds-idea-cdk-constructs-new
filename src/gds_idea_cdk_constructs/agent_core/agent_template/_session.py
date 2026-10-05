@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Protocol
+from typing import Any, Generic, Protocol, TypeVar
 
 logger = logging.getLogger("agent")
 
@@ -16,7 +16,11 @@ class _Disposable(Protocol):
     def cleanup(self) -> None: ...
 
 
-class AgentSession[AgentT: _Disposable]:
+# TypeVar, not `class AgentSession[T]`: tests load this file on Python 3.11.
+AgentT = TypeVar("AgentT", bound=_Disposable)
+
+
+class AgentSession(Generic[AgentT]):
     """Holds the agent for the conversation this container is serving.
 
     The agent is built on the first turn and reused until the ``session_id``
