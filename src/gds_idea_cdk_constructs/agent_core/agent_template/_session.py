@@ -23,7 +23,7 @@ class _Agent(Protocol):
 AgentT = TypeVar("AgentT", bound=_Agent)
 
 
-class AgentSession(Generic[AgentT]):
+class AgentSession(Generic[AgentT]):  # noqa: UP046 (see above)
     """Holds the agent for the conversation this container is serving.
 
     The agent is built on the first turn and reused until the ``session_id``
