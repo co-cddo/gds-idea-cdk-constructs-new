@@ -709,3 +709,83 @@ def test_custom_agent_gets_gateway_env_vars_and_permission(cdk_app, cdk_env):
             }
         },
     )
+
+
+# =============================================================================
+# Gateway synth-time validation tests
+# =============================================================================
+
+
+def _tools_context_key(gateway_name: str) -> str:
+    return (
+        "ssm:account=123456789012"
+        f":parameterName=/gds-idea/gateways/{gateway_name}/tools"
+        ":region=eu-west-2"
+    )
+
+
+def _gateway_stack(targets, context, gateways=("idea-data",)):
+    return AgentCore(
+        App(context=context),
+        "ValidatedStack",
+        props=AgentCoreProperties(
+            runtime_name="validated_agent",
+            gateway=GatewayConfig(gateways=list(gateways), targets=targets),
+        ),
+        env=CdkEnvironment(account="123456789012", region="eu-west-2"),
+    )
+
+
+def test_gateway_targets_validated_against_published_tools():
+    """Tests that known targets synth cleanly when the tool list is cached."""
+    context = {
+        _tools_context_key("idea-data"): '["wfc___read_sql", "wfc___run_sql"]',
+    }
+    stack = _gateway_stack(["wfc"], context)
+    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
+
+
+def test_gateway_unknown_target_fails_synth():
+    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
+    with pytest.raises(ValueError, match=r"Targets not found.*\['wcf'\]"):
+        _gateway_stack(["wcf"], context)
+
+
+def test_gateway_target_may_live_on_any_listed_gateway():
+    context = {
+        _tools_context_key("idea-data"): '["wfc___read_sql"]',
+        _tools_context_key("other"): '["dpd___read_sql"]',
+    }
+    _gateway_stack(["wfc", "dpd"], context, gateways=("idea-data", "other"))
+
+
+def test_gateway_validation_skipped_on_first_synth():
+    """With no cached value the CDK returns a placeholder, so skip validation."""
+    stack = _gateway_stack(["anything"], context={})
+    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
+
+
+def test_gateway_validation_skipped_if_any_gateway_still_placeholder():
+    """A partial cache can't prove a target is missing, so don't fail."""
+    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
+    _gateway_stack(["dpd"], context, gateways=("idea-data", "other"))
+
+
+def test_gateway_no_lookup_when_unfiltered():
+    """P4 mode: no targets means no lookup, so bad cached data is irrelevant."""
+    context = {_tools_context_key("idea-data"): "not json"}
+    stack = _gateway_stack(None, context)
+    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
+
+
+def test_gateway_tools_parameter_invalid_json_raises():
+    context = {_tools_context_key("idea-data"): "not json"}
+    with pytest.raises(ValueError, match="does not contain valid JSON"):
+        _gateway_stack(["wfc"], context)
+
+
+@pytest.mark.parametrize("value", ['{"a": 1}', "[1, 2]", '"wfc___run_sql"'])
+def test_gateway_tools_parameter_wrong_shape_raises(value):
+    context = {_tools_context_key("idea-data"): value}
+    with pytest.raises(ValueError, match="must contain a JSON list of strings"):
+        _gateway_stack(["wfc"], context)

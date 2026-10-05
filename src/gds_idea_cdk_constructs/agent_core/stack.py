@@ -7,18 +7,53 @@ from aws_cdk import (
     aws_iam as iam,
     aws_ssm as ssm,
 )
-from constructs import Construct
+from constructs import Construct, IConstruct
 
 from .props import (
     _DEFAULT_AGENT_CODE_DIR,
     AgentCoreProperties,
     BuiltInAgent,
+    GatewayConfig,
 )
+
+# value_from_lookup returns "dummy-value-for-<path>" until the CDK has fetched it
+_LOOKUP_PLACEHOLDER_PREFIX = "dummy-value-for-"
 
 
 def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
     """SSM parameter path published by the gateway repository."""
     return f"/gds-idea/gateways/{gateway_name}/{attribute}"
+
+
+def _lookup_gateway_tools(scope: IConstruct, gateway_name: str) -> list[str] | None:
+    """Read the tool names a gateway publishes, at synth time.
+
+    The value is cached by the CDK in ``cdk.context.json``.
+
+    Args:
+        scope: Construct whose stack env is used for the lookup. Must have a
+            concrete account and region.
+        gateway_name: Name of the gateway.
+
+    Returns:
+        The published ``{target}___{tool}`` names, or ``None`` on the first
+        synth, when the CDK has not yet fetched the value and returns a
+        placeholder.
+
+    Raises:
+        ValueError: If the parameter does not hold a JSON list of strings.
+    """
+    path = _gateway_ssm_path(gateway_name, "tools")
+    value = ssm.StringParameter.value_from_lookup(scope, path)
+    if value.startswith(_LOOKUP_PLACEHOLDER_PREFIX):
+        return None
+    try:
+        tools = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"SSM parameter {path} does not contain valid JSON") from e
+    if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
+        raise ValueError(f"SSM parameter {path} must contain a JSON list of strings")
+    return tools
 
 
 class AgentCore(Stack):
@@ -107,6 +142,7 @@ class AgentCore(Stack):
             env_vars["GATEWAY_URLS"] = self.to_json_string(gateway_urls)
             if props.gateway.targets is not None:
                 env_vars["GATEWAY_TARGETS"] = json.dumps(props.gateway.targets)
+                self._validate_gateway_targets(props.gateway)
 
         # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
@@ -262,6 +298,20 @@ class AgentCore(Stack):
         # Show outputs
         CfnOutput(self, "RuntimeArn", value=runtime.agent_runtime_arn)
         CfnOutput(self, "RuntimeRoleArn", value=runtime.role.role_arn)
+
+    def _validate_gateway_targets(self, gateway: GatewayConfig) -> None:
+        """Fail synth if a requested target is not published by the gateway(s).
+
+        Skipped on the first synth, while any gateway's tool list is still a
+        placeholder: the CDK fetches the real value and synthesises again.
+        """
+        published: list[str] = []
+        for gateway_name in gateway.gateways:
+            tools = _lookup_gateway_tools(self, gateway_name)
+            if tools is None:
+                return
+            published.extend(tools)
+        gateway.validate_against(published)
 
     # ------------------------------------------------------------------
     # Cross-Stack integration
