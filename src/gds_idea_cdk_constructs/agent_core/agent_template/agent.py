@@ -19,6 +19,7 @@ from strands.models import BedrockModel
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
 from _config import Config
+from _session import AgentSession
 
 # --- Configuration (injected via CDK environment variables) ---
 config = Config.from_env()
@@ -130,18 +131,11 @@ def save_interaction(session_id: str, role: str, content: str) -> None:
 # Agent factory
 # ==========================================================================
 
-def create_agent(history: list[dict]) -> Agent:
-    """Create a Strands Agent with conversation history and thinking enabled."""
+def build_system_prompt() -> str:
+    """Render the system prompt for today's date."""
     system_prompt = config.system_prompt.replace(
         "{today}", date.today().isoformat()
     )
-
-    additional_fields = {}
-    if config.thinking_enabled:
-        additional_fields["thinking"] = {
-            "type": "enabled",
-            "budget_tokens": config.budget_tokens,
-        }
 
     # If knowledge base is available, need to tell LLM that it's available to use via the retrieve tool
     if KB_ID:
@@ -150,6 +144,17 @@ def create_agent(history: list[dict]) -> Agent:
             "Use it to search for relevant information when answering questions "
             "that may require specific knowledge or documentation."
         )
+    return system_prompt
+
+
+def create_agent(history: list[dict]) -> Agent:
+    """Create a Strands Agent with conversation history and thinking enabled."""
+    additional_fields = {}
+    if config.thinking_enabled:
+        additional_fields["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": config.budget_tokens,
+        }
 
     return Agent(
         model=BedrockModel(
@@ -158,7 +163,7 @@ def create_agent(history: list[dict]) -> Agent:
             max_tokens=config.max_tokens,
             additional_request_fields=additional_fields,
         ),
-        system_prompt=system_prompt,
+        system_prompt=build_system_prompt(),
         messages=history,
         tools=tools,
     )
@@ -167,6 +172,11 @@ def create_agent(history: list[dict]) -> Agent:
 # ==========================================================================
 # Main turn
 # ==========================================================================
+
+# One agent per conversation: rebuilt from Memory only when the session changes
+# or a turn fails. Callers must send runtimeSessionId for turns to share a VM.
+agent_session = AgentSession(create_agent, get_session_history)
+
 
 async def run_agent_turn(
     query: str, session_id: str
@@ -177,41 +187,44 @@ async def run_agent_turn(
     ``text``, ``thinking``, ``done``, ``error``.
     """
     try:
-        history = get_session_history(session_id)
-        logger.info("Turn start | Session=%s | History=%d", session_id, len(history))
-
-        agent = create_agent(history)
         response_text = ""
         usage = {}
 
-        async for raw_event in agent.stream_async(query):
-            event = (
-                raw_event.get("event", raw_event)
-                if isinstance(raw_event, dict)
-                else raw_event
+        async with agent_session.turn(session_id) as agent:
+            agent.system_prompt = build_system_prompt()  # keeps {today} current
+            logger.info(
+                "Turn start | Session=%s | Messages=%d", session_id, len(agent.messages)
             )
-            if not isinstance(event, dict) or not event:
-                continue
 
-            # Text chunk
-            if "data" in event:
-                yield {"type": "text", "data": event["data"]}
-
-            # Reasoning / thinking
-            elif "delta" in event and "reasoningContent" in event["delta"]:
-                chunk = _handle_reasoning(event)
-                if chunk:
-                    yield chunk
-
-            # Final result
-            elif "result" in event:
-                result_obj = event["result"]
-                response_text = _extract_response_text(result_obj)
-                usage = extract_and_record_usage(
-                    result_obj, session_id, config.model_id
+            async for raw_event in agent.stream_async(query):
+                event = (
+                    raw_event.get("event", raw_event)
+                    if isinstance(raw_event, dict)
+                    else raw_event
                 )
+                if not isinstance(event, dict) or not event:
+                    continue
 
-        # Persist the turn
+                # Text chunk
+                if "data" in event:
+                    yield {"type": "text", "data": event["data"]}
+
+                # Reasoning / thinking
+                elif "delta" in event and "reasoningContent" in event["delta"]:
+                    chunk = _handle_reasoning(event)
+                    if chunk:
+                        yield chunk
+
+                # Final result
+                elif "result" in event:
+                    result_obj = event["result"]
+                    response_text = _extract_response_text(result_obj)
+                    usage = extract_and_record_usage(
+                        result_obj, session_id, config.model_id
+                    )
+
+        # Persist the turn (after the block, so a disconnect while yielding
+        # "done" below cannot discard an agent whose turn already finished)
         save_interaction(session_id, "user", query)
         save_interaction(session_id, "assistant", response_text)
 
