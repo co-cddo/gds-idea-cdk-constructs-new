@@ -1,8 +1,11 @@
+import json
+
 import aws_cdk.aws_bedrock_agentcore_alpha as agentcore
 from aws_cdk import (
     CfnOutput,
     Stack,
     aws_iam as iam,
+    aws_ssm as ssm,
 )
 from constructs import Construct
 
@@ -11,6 +14,11 @@ from .props import (
     AgentCoreProperties,
     BuiltInAgent,
 )
+
+
+def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
+    """SSM parameter path published by the gateway repository."""
+    return f"/gds-idea/gateways/{gateway_name}/{attribute}"
 
 
 class AgentCore(Stack):
@@ -79,6 +87,26 @@ class AgentCore(Stack):
             env_vars["RETRIEVE_ENABLE_METADATA_DEFAULT"] = str(
                 kb_config.enable_metadata
             ).lower()
+
+        # --- Gateway (optional) ---
+        gateway_arns: list[str] = []
+        if props.gateway:
+            gateway_urls = []
+            for gateway_name in props.gateway.gateways:
+                gateway_urls.append(
+                    ssm.StringParameter.value_for_string_parameter(
+                        self, _gateway_ssm_path(gateway_name, "url")
+                    )
+                )
+                gateway_arns.append(
+                    ssm.StringParameter.value_for_string_parameter(
+                        self, _gateway_ssm_path(gateway_name, "arn")
+                    )
+                )
+            # to_json_string (not json.dumps) so deploy-time SSM tokens resolve
+            env_vars["GATEWAY_URLS"] = self.to_json_string(gateway_urls)
+            if props.gateway.targets is not None:
+                env_vars["GATEWAY_TARGETS"] = json.dumps(props.gateway.targets)
 
         # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
@@ -220,6 +248,16 @@ class AgentCore(Stack):
         # Knowledge Base permissions
         if props.knowledge_base:
             props.knowledge_base.knowledge_base.grant_retrieve(runtime.role)
+
+        # Gateway permissions: InvokeGateway is per gateway and needs the exact ARN
+        if gateway_arns:
+            runtime.role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="GatewayInvoke",
+                    actions=["bedrock-agentcore:InvokeGateway"],
+                    resources=gateway_arns,
+                )
+            )
 
         # Show outputs
         CfnOutput(self, "RuntimeArn", value=runtime.agent_runtime_arn)

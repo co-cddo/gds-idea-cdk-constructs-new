@@ -8,6 +8,7 @@ from gds_idea_cdk_constructs.agent_core.props import (
     AgentCoreProperties,
     BuiltInAgent,
     CustomAgent,
+    GatewayConfig,
     MemoryConfig,
     ModelConfig,
 )
@@ -108,6 +109,31 @@ def custom_agent_no_memory(cdk_app, cdk_env):
                 environment_variables={"API_KEY": "secret"},
             ),
             memory=None,
+        ),
+        env=cdk_env,
+    )
+
+
+@pytest.fixture
+def gateway_unfiltered(cdk_app, cdk_env):
+    """Gateway attached with no target filter."""
+    return AgentCore(
+        cdk_app,
+        "GatewayStack",
+        props=AgentCoreProperties(runtime_name="gw_agent", gateway=GatewayConfig()),
+        env=cdk_env,
+    )
+
+
+@pytest.fixture
+def gateway_filtered(cdk_app, cdk_env):
+    """Two gateways attached, filtered to the wfc target."""
+    return AgentCore(
+        cdk_app,
+        "GatewayFilteredStack",
+        props=AgentCoreProperties(
+            runtime_name="gw_filtered_agent",
+            gateway=GatewayConfig(gateways=["idea-data", "other"], targets=["wfc"]),
         ),
         env=cdk_env,
     )
@@ -535,6 +561,150 @@ def test_observability_permissions_present_for_custom_agent(custom_agent_no_memo
                             }
                         )
                     ]
+                )
+            }
+        },
+    )
+
+
+# =============================================================================
+# Gateway tests
+# =============================================================================
+
+
+def _gateway_param_logical_id(template, ssm_path):
+    """Find the CFN parameter logical ID that resolves the given SSM path."""
+    for logical_id, param in template.to_json()["Parameters"].items():
+        if param.get("Default") == ssm_path:
+            return logical_id
+    raise AssertionError(f"No CloudFormation parameter for {ssm_path}")
+
+
+def test_gateway_reads_url_and_arn_from_ssm(gateway_unfiltered):
+    """Tests that the gateway URL and ARN are resolved from SSM at deploy time."""
+    template = Template.from_stack(gateway_unfiltered)
+    for attribute in ("url", "arn"):
+        template.has_parameter(
+            "*",
+            {
+                "Type": "AWS::SSM::Parameter::Value<String>",
+                "Default": f"/gds-idea/gateways/idea-data/{attribute}",
+            },
+        )
+
+
+def test_gateway_urls_env_var_is_json_list_of_ssm_values(gateway_filtered):
+    template = Template.from_stack(gateway_filtered)
+    url_a = _gateway_param_logical_id(template, "/gds-idea/gateways/idea-data/url")
+    url_b = _gateway_param_logical_id(template, "/gds-idea/gateways/other/url")
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "GATEWAY_URLS": {
+                        "Fn::Join": [
+                            "",
+                            ['["', {"Ref": url_a}, '","', {"Ref": url_b}, '"]'],
+                        ]
+                    }
+                }
+            ),
+        },
+    )
+
+
+def test_gateway_targets_env_var_set_when_filtered(gateway_filtered):
+    template = Template.from_stack(gateway_filtered)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {"EnvironmentVariables": Match.object_like({"GATEWAY_TARGETS": '["wfc"]'})},
+    )
+
+
+def test_no_gateway_targets_env_var_when_unfiltered(gateway_unfiltered):
+    """No GATEWAY_TARGETS means the agent keeps every tool on the gateway."""
+    template_json = Template.from_stack(gateway_unfiltered).to_json()
+    for resource in template_json["Resources"].values():
+        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
+            env_vars = resource["Properties"]["EnvironmentVariables"]
+            assert "GATEWAY_URLS" in env_vars
+            assert "GATEWAY_TARGETS" not in env_vars
+
+
+def test_gateway_invoke_permission_uses_exact_gateway_arns(gateway_filtered):
+    """InvokeGateway rejects wildcards, so each gateway ARN is listed exactly."""
+    template = Template.from_stack(gateway_filtered)
+    arn_a = _gateway_param_logical_id(template, "/gds-idea/gateways/idea-data/arn")
+    arn_b = _gateway_param_logical_id(template, "/gds-idea/gateways/other/arn")
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        {
+                            "Sid": "GatewayInvoke",
+                            "Action": "bedrock-agentcore:InvokeGateway",
+                            "Effect": "Allow",
+                            "Resource": [{"Ref": arn_a}, {"Ref": arn_b}],
+                        }
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_no_gateway_resources_when_not_configured(builtin_default):
+    template = Template.from_stack(builtin_default)
+    template_json = template.to_json()
+    assert not any(
+        "gateways" in param.get("Default", "")
+        for param in template_json["Parameters"].values()
+    )
+    for resource in template_json["Resources"].values():
+        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
+            env_vars = resource["Properties"]["EnvironmentVariables"]
+            assert "GATEWAY_URLS" not in env_vars
+        if resource["Type"] == "AWS::IAM::Policy":
+            sids = [
+                s.get("Sid")
+                for s in resource["Properties"]["PolicyDocument"]["Statement"]
+            ]
+            assert "GatewayInvoke" not in sids
+
+
+def test_custom_agent_gets_gateway_env_vars_and_permission(cdk_app, cdk_env):
+    """CustomAgent gets the same env vars and IAM grant, and wires MCP itself."""
+    stack = AgentCore(
+        cdk_app,
+        "CustomGatewayStack",
+        props=AgentCoreProperties(
+            runtime_name="custom_gw",
+            agent=CustomAgent(agent_code_directory="tests/fixtures/fake_agent/"),
+            gateway=GatewayConfig(targets=["wfc"]),
+        ),
+        env=cdk_env,
+    )
+    template = Template.from_stack(stack)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "GATEWAY_URLS": Match.any_value(),
+                    "GATEWAY_TARGETS": '["wfc"]',
+                }
+            ),
+        },
+    )
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [Match.object_like({"Sid": "GatewayInvoke"})]
                 )
             }
         },
