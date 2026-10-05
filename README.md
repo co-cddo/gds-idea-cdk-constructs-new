@@ -112,6 +112,33 @@ The construct automatically injects these env vars into your container:
 | `REGION` | Always |
 | `MEMORY_ID` | When `memory` is set |
 
+### Conversations and `runtimeSessionId`
+
+The built-in agent keeps one agent alive for the length of a conversation, instead of rebuilding it on every message. Its history is loaded from Memory on the first message, then kept in the container.
+
+AgentCore routes requests to the same container only when they carry the same `runtimeSessionId`. **Callers must pass one**, and use the same value as the `session_id` in the payload:
+
+```python
+client.invoke_agent_runtime(
+    agentRuntimeArn=runtime_arn,
+    runtimeSessionId=session_id,  # at least 33 characters; a uuid4 string works
+    payload=json.dumps({"prompt": prompt, "session_id": session_id}).encode(),
+)
+```
+
+Without it, every message may start in a new container. Nothing breaks, but nothing is reused either.
+
+Things to know:
+
+- **Warm versus cold history.** A warm container remembers earlier tool calls and their results. After a restart (15 minutes idle, 8 hours maximum) only the saved user and assistant text is reloaded, so the agent may repeat a tool call it already made.
+- **One turn at a time.** A second message in the same conversation waits for the first to finish.
+- **Failed or abandoned turns.** If a turn fails, or the client disconnects mid-reply, the agent is dropped and rebuilt from Memory on the next message.
+- **A new `session_id`** in the same container starts a fresh agent with that conversation's history.
+- **Memory is still written every turn**, so no conversation depends on a container staying alive.
+- **Checking it works.** Logs show `Building agent | Session=...` when an agent is built. Later turns in the same conversation log only `Turn start | ... | Messages=N`, with N growing.
+
+`CustomAgent` is unaffected: this behaviour lives in the built-in template.
+
 ### Configuration reference
 
 #### `AgentCoreProperties`
@@ -142,7 +169,7 @@ The construct automatically injects these env vars into your container:
 | `max_tokens` | `int` | `8000` | Max output tokens (thinking + reply) |
 | `budget_tokens` | `int` | `4000` | Thinking budget (must be < max_tokens) |
 | `thinking_enabled` | `bool` | `True` | Enable extended thinking |
-| `max_history` | `int` | `20` | Conversation turns to retain |
+| `max_history` | `int` | `20` | Saved messages loaded from Memory when a conversation's agent is built |
 
 #### `CustomAgent`
 
@@ -159,9 +186,6 @@ The construct automatically injects these env vars into your container:
 | `name` | `str` | `"chat_session_store"` | Memory store name |
 | `description` | `str` | `"Stores short-term..."` | Memory store description |
 
-<<<<<<< HEAD
-Docs https://co-cddo.github.io/gds-idea-cdk-constructs-new/
-=======
 ## Knowledge Base
 
 Creates an [Amazon Bedrock Knowledge Base](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html) with S3 data source, vector storage, and automatic sync. Supports configurable chunking strategies, embedding models, and storage backends.
@@ -355,5 +379,4 @@ for result in response["retrievalResults"]:
 | `ChunkingConfig.hierarchical(max_tokens, overlap_percentage)` | `300`, `20` | Two-level parent/child chunks |
 | `ChunkingConfig.semantic(max_tokens, buffer_size, breakpoint_percentile_threshold)` | `300`, `0`, `95` | Split on semantic boundaries |
 
-Docs https://co-cddo.github.io/gds-idea-cdk-constructs/
->>>>>>> 5592a04 (Added to readme for new knowledge base config)
+Docs https://co-cddo.github.io/gds-idea-cdk-constructs-new/
