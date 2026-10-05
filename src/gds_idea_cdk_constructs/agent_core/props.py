@@ -121,7 +121,9 @@ class GatewayConfig:
                     "a letter"
                 )
 
-    def validate_against(self, available_tools: list[str]) -> None:
+    def validate_against(
+        self, available_tools: list[str], context_keys: list[str] | None = None
+    ) -> None:
         """Check every requested target exists on the gateway.
 
         Does nothing when ``targets`` is ``None``, since there is nothing to
@@ -131,6 +133,8 @@ class GatewayConfig:
         Args:
             available_tools: Full tool names published by the gateway, in the
                 form ``{target}___{tool}``.
+            context_keys: CDK context keys the tool list was cached under. When
+                given, the error shows the exact command to refresh them.
 
         Raises:
             ValueError: If one or more requested targets have no tools on the
@@ -144,11 +148,15 @@ class GatewayConfig:
         }
         missing = [t for t in self.targets if t not in available_targets]
         if missing:
+            if context_keys:
+                refresh = "; ".join(f"cdk context --reset '{k}'" for k in context_keys)
+            else:
+                refresh = "cdk context --reset <key>"
             raise ValueError(
                 f"Targets not found on gateway {self.gateways}: {missing}. "
                 f"Available targets: {sorted(available_targets)}. "
-                "If the target was added to the gateway recently, run "
-                "'cdk context --reset <key>' to refresh the cached tool list."
+                "If the target was added to the gateway recently, refresh the "
+                f"cached tool list with: {refresh}"
             )
 
 

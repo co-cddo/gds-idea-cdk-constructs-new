@@ -181,6 +181,16 @@ def test_gateway_config_validate_against_hints_context_reset():
         config.validate_against(_AVAILABLE_TOOLS)
 
 
+def test_gateway_config_validate_against_shows_exact_reset_command():
+    config = GatewayConfig(targets=["nope"])
+    with pytest.raises(ValueError, match="Targets not found") as exc_info:
+        config.validate_against(_AVAILABLE_TOOLS, context_keys=["ssm:a=1", "ssm:b=2"])
+    message = str(exc_info.value)
+    assert "cdk context --reset 'ssm:a=1'" in message
+    assert "cdk context --reset 'ssm:b=2'" in message
+    assert "<key>" not in message
+
+
 def test_gateway_config_validate_against_empty_gateway_raises():
     with pytest.raises(ValueError, match="Targets not found"):
         GatewayConfig(targets=["wfc"]).validate_against([])

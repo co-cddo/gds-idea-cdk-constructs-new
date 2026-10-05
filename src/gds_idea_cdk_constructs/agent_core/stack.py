@@ -25,6 +25,11 @@ def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
     return f"/gds-idea/gateways/{gateway_name}/{attribute}"
 
 
+def _ssm_context_key(account: str, region: str, parameter_name: str) -> str:
+    """Key the CDK caches an SSM lookup under in ``cdk.context.json``."""
+    return f"ssm:account={account}:parameterName={parameter_name}:region={region}"
+
+
 def _lookup_gateway_tools(scope: IConstruct, gateway_name: str) -> list[str] | None:
     """Read the tool names a gateway publishes, at synth time.
 
@@ -311,7 +316,13 @@ class AgentCore(Stack):
             if tools is None:
                 return
             published.extend(tools)
-        gateway.validate_against(published)
+        context_keys = [
+            _ssm_context_key(
+                self.account, self.region, _gateway_ssm_path(name, "tools")
+            )
+            for name in gateway.gateways
+        ]
+        gateway.validate_against(published, context_keys)
 
     # ------------------------------------------------------------------
     # Cross-Stack integration

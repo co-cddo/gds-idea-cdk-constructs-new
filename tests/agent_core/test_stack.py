@@ -751,6 +751,16 @@ def test_gateway_unknown_target_fails_synth():
         _gateway_stack(["wcf"], context)
 
 
+def test_gateway_unknown_target_error_shows_the_exact_reset_command():
+    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
+    with pytest.raises(ValueError, match="Targets not found") as exc_info:
+        _gateway_stack(["wcf"], context)
+    assert (
+        "cdk context --reset 'ssm:account=123456789012"
+        ":parameterName=/gds-idea/gateways/idea-data/tools:region=eu-west-2'"
+    ) in str(exc_info.value)
+
+
 def test_gateway_target_may_live_on_any_listed_gateway():
     context = {
         _tools_context_key("idea-data"): '["wfc___read_sql"]',
