@@ -146,6 +146,8 @@ Things to know:
 Tools live in one shared AgentCore Gateway, owned by a separate repository. This construct never creates a gateway: it looks one up and lets the agent use its tools.
 
 ```python
+import aws_cdk as cdk
+
 from gds_idea_cdk_constructs.agent_core import (
     AgentCore,
     AgentCoreProperties,
