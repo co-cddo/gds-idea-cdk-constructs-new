@@ -190,7 +190,14 @@ def create_agent(history: list[dict]) -> Agent:
 
 # One agent per conversation: rebuilt from Memory only when the session changes
 # or a turn fails. Callers must send runtimeSessionId for turns to share a VM.
-agent_session = AgentSession(create_agent, get_session_history)
+# With gateways, the agent is also rebuilt every 15 minutes (keeping its
+# messages) so its gateway connections are renewed.
+GATEWAY_REFRESH_SECONDS = 15 * 60
+agent_session = AgentSession(
+    create_agent,
+    get_session_history,
+    max_age_seconds=GATEWAY_REFRESH_SECONDS if config.gateway_urls else None,
+)
 
 
 async def run_agent_turn(

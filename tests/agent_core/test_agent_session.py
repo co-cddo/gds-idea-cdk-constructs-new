@@ -232,3 +232,181 @@ def test_queued_turns_share_the_agent_built_by_the_first(session, built):
     agents = asyncio.run(scenario())
     assert len(built) == 1
     assert all(a is built[0] for a in agents)
+
+
+# -- Refresh (renewing gateway connections) --
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock():
+    return FakeClock()
+
+
+@pytest.fixture
+def aging_session(built, loaded, clock):
+    def build_agent(messages):
+        agent = FakeAgent(list(messages))
+        built.append(agent)
+        return agent
+
+    def load_history(session_id):
+        loaded.append(session_id)
+        return [{"role": "user", "content": "saved"}]
+
+    return AgentSession(build_agent, load_history, max_age_seconds=900, clock=clock)
+
+
+def test_agent_is_reused_before_max_age(aging_session, built, clock):
+    async def scenario():
+        await _run_turn(aging_session, "s1")
+        clock.now += 899
+        return await _run_turn(aging_session, "s1")
+
+    agent = asyncio.run(scenario())
+    assert len(built) == 1
+    assert agent is built[0]
+
+
+def test_agent_is_rebuilt_after_max_age_keeping_its_messages(
+    aging_session, built, loaded, clock
+):
+    async def scenario():
+        first = await _run_turn(aging_session, "s1")
+        first.messages.append({"role": "assistant", "content": "from this container"})
+        clock.now += 900
+        return first, await _run_turn(aging_session, "s1")
+
+    first, second = asyncio.run(scenario())
+    assert second is not first
+    assert second.messages == first.messages
+    assert len(second.messages) == 2  # the saved one plus the live one
+    assert loaded == ["s1"]  # not reloaded from Memory
+
+
+def test_refresh_cleans_up_the_old_agent(aging_session, clock):
+    async def scenario():
+        first = await _run_turn(aging_session, "s1")
+        clock.now += 900
+        await _run_turn(aging_session, "s1")
+        return first
+
+    assert asyncio.run(scenario()).cleaned_up is True
+
+
+def test_refresh_restarts_the_clock(aging_session, built, clock):
+    async def scenario():
+        await _run_turn(aging_session, "s1")
+        clock.now += 900
+        await _run_turn(aging_session, "s1")  # refresh
+        clock.now += 899
+        await _run_turn(aging_session, "s1")  # too soon for another
+
+    asyncio.run(scenario())
+    assert len(built) == 2
+
+
+def test_refresh_copies_messages_so_old_agent_cleanup_cannot_affect_new(
+    aging_session, clock
+):
+    async def scenario():
+        first = await _run_turn(aging_session, "s1")
+        clock.now += 900
+        second = await _run_turn(aging_session, "s1")
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    first.messages.clear()
+    assert len(second.messages) == 1
+
+
+def test_failed_refresh_keeps_the_old_agent_and_retries_next_turn(built, clock, caplog):
+    attempts = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) == 2:
+            raise ConnectionError("gateway unreachable")
+        agent = FakeAgent(list(messages))
+        built.append(agent)
+        return agent
+
+    session = AgentSession(
+        build_agent, lambda session_id: [], max_age_seconds=900, clock=clock
+    )
+
+    async def scenario():
+        first = await _run_turn(session, "s1")
+        clock.now += 900
+        with caplog.at_level(logging.ERROR, logger="agent"):
+            second = await _run_turn(session, "s1")  # refresh fails
+        third = await _run_turn(session, "s1")  # retries
+        return first, second, third
+
+    first, second, third = asyncio.run(scenario())
+    assert second is first
+    assert first.cleaned_up is True  # only once the retry succeeds
+    assert third is not first
+    assert "Refreshing agent failed" in caplog.text
+
+
+def test_failed_refresh_does_not_clean_up_the_old_agent():
+    clock = FakeClock()
+    attempts = []
+    agents = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) > 1:
+            raise ConnectionError("gateway unreachable")
+        agents.append(FakeAgent(messages))
+        return agents[0]
+
+    session = AgentSession(
+        build_agent, lambda session_id: [], max_age_seconds=900, clock=clock
+    )
+
+    async def scenario():
+        await _run_turn(session, "s1")
+        clock.now += 900
+        await _run_turn(session, "s1")
+
+    asyncio.run(scenario())
+    assert agents[0].cleaned_up is False
+
+
+def test_no_refresh_without_max_age(built):
+    """Test that agents without gateways are never rebuilt on a timer."""
+    clock = FakeClock()
+    no_limit = AgentSession(
+        lambda messages: built.append(FakeAgent(messages)) or built[-1],
+        lambda session_id: [],
+        clock=clock,
+    )
+
+    async def scenario():
+        await _run_turn(no_limit, "s1")
+        clock.now += 10**9
+        await _run_turn(no_limit, "s1")
+
+    asyncio.run(scenario())
+    assert len(built) == 1
+
+
+def test_new_session_after_expiry_loads_history_instead_of_refreshing(
+    aging_session, loaded, clock
+):
+    async def scenario():
+        await _run_turn(aging_session, "s1")
+        clock.now += 900
+        await _run_turn(aging_session, "s2")
+
+    asyncio.run(scenario())
+    assert loaded == ["s1", "s2"]
