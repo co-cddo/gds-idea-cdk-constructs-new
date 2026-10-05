@@ -111,6 +111,8 @@ The construct automatically injects these env vars into your container:
 | `MODEL_ID` | Always |
 | `REGION` | Always |
 | `MEMORY_ID` | When `memory` is set |
+| `GATEWAY_URLS` | When `gateway` is set |
+| `GATEWAY_TARGETS` | When `gateway` is set with `targets` |
 
 ### Conversations and `runtimeSessionId`
 
@@ -139,6 +141,88 @@ Things to know:
 
 `CustomAgent` is unaffected: this behaviour lives in the built-in template.
 
+### Using tools from a shared gateway
+
+Tools live in one shared AgentCore Gateway, owned by a separate repository. This construct never creates a gateway: it looks one up and lets the agent use its tools.
+
+```python
+from gds_idea_cdk_constructs.agent_core import (
+    AgentCore,
+    AgentCoreProperties,
+    GatewayConfig,
+)
+
+# Only the tools of the "wfc" target
+AgentCore(
+    app,
+    "WfcAgent",
+    props=AgentCoreProperties(
+        runtime_name="wfc_agent",
+        gateway=GatewayConfig(targets=["wfc"]),
+    ),
+    env=cdk.Environment(account="123456789012", region="eu-west-2"),
+)
+
+# Every tool on the gateway, including ones added later
+AgentCore(
+    app,
+    "DiaAgent",
+    props=AgentCoreProperties(
+        runtime_name="dia_agent",
+        gateway=GatewayConfig(),
+    ),
+)
+```
+
+Tools are named `{target}___{tool}` (three underscores), so `targets=["wfc"]` keeps `wfc___read_sql`, `wfc___run_sql` and so on.
+
+What the construct does for you:
+
+- Reads the gateway URL and ARN from `/gds-idea/gateways/{name}/url` and `/arn` at deploy time.
+- Lets the runtime role call the gateway (`bedrock-agentcore:InvokeGateway`, on the exact gateway ARN).
+- Passes `GATEWAY_URLS` (and `GATEWAY_TARGETS`, when you pin targets) to the agent.
+- Checks your targets exist at synth time, so a typo fails the build instead of leaving the agent without tools.
+
+#### Two separate controls
+
+| | Where | What it does |
+|---|---|---|
+| `targets=[...]` | This construct | Keeps the agent's tool list short. Not a security control: it is a filter in the agent's own code. |
+| Cedar policies | The gateway repository | Decides which callers may use which tools. Enforced by the gateway. |
+
+#### Things to know
+
+- **Pinned targets need a real `env=`.** The check reads the gateway's tool list at synth time, which needs a concrete account and region. With no `targets`, no lookup happens.
+- **The tool list is cached** in `cdk.context.json`. If you add a target that was created after the cache was written, synth fails and prints the exact `cdk context --reset '...'` command to run.
+- **The first synth skips the check.** The CDK returns a placeholder until it has fetched the value, then synthesises again. A typo is caught on that second pass.
+- **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
+- **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
+- **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `wfc_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
+- **Existing agents get a new role on their next deploy.** CloudFormation creates the new role, points the runtime at it, then deletes the old one. The role can no longer be replaced in place while keeping its name, so a change that forces replacement needs the role renamed first.
+- **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
+- **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
+- **Target names use single underscores** (`gats_kb`, not `gats__kb`), so they cannot be confused with the `___` separator.
+- **Several gateways** can be listed in `gateways=[...]`. A target may live on any of them.
+
+#### How the connection is kept
+
+The agent opens its gateway connections when it is built and closes them when it is replaced. Because one agent now lasts a whole conversation, it is also rebuilt every **15 minutes**, keeping its messages, so a connection that has quietly dropped does not stay broken.
+
+- The turn that triggers a rebuild pays the reconnect time.
+- If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and retries on the next message.
+- If the gateway cannot be reached when a conversation starts, that message fails with an error. The agent never silently runs without its tools.
+
+#### With `CustomAgent`
+
+A custom agent gets the same environment variables and `InvokeGateway` permission, but connects itself:
+
+| Variable | Value |
+|---|---|
+| `GATEWAY_URLS` | JSON list of MCP endpoint URLs |
+| `GATEWAY_TARGETS` | JSON list of target names. Only set when you pin targets; absent means keep everything. |
+
+Requests must be signed with SigV4 for the `bedrock-agentcore` service. The built-in agent template shows how (`agent_template/_gateway.py`).
+
 ### Configuration reference
 
 #### `AgentCoreProperties`
@@ -149,6 +233,7 @@ Things to know:
 | `agent` | `BuiltInAgent \| CustomAgent` | `BuiltInAgent()` | Agent mode |
 | `memory` | `MemoryConfig \| None` | `MemoryConfig()` | Memory config, or `None` to skip |
 | `knowledge_base` | `KnowledgeBaseConfig \| None` | `None` | Optional KB attachment (auto-wires env vars + permissions) |
+| `gateway` | `GatewayConfig \| None` | `None` | Optional shared-gateway attachment (auto-wires URL, permissions, env vars) |
 | `description` | `str` | `"An AgentCore Runtime..."` | Runtime description |
 | `platform` | `Platform` | `LINUX_ARM64` | Docker build target |
 | `removal_policy` | `RemovalPolicy` | `DESTROY` | Removal policy for stateful resources |
@@ -185,6 +270,13 @@ Things to know:
 |---|---|---|---|
 | `name` | `str` | `"chat_session_store"` | Memory store name |
 | `description` | `str` | `"Stores short-term..."` | Memory store description |
+
+#### `GatewayConfig`
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `gateways` | `list[str]` | `["idea-data"]` | Gateway names. Lowercase letters, digits and hyphens. |
+| `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["wfc"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
 
 ## Knowledge Base
 
