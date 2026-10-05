@@ -147,6 +147,51 @@ def test_gateway_config_underscore_target_name_allowed():
     assert GatewayConfig(targets=["gats_kb"]).targets == ["gats_kb"]
 
 
+_AVAILABLE_TOOLS = [
+    "wfc___read_sql",
+    "wfc___run_sql",
+    "dpd___read_sql",
+    "gats_kb___retrieve",
+]
+
+
+def test_gateway_config_validate_against_passes_for_known_targets():
+    GatewayConfig(targets=["wfc", "gats_kb"]).validate_against(_AVAILABLE_TOOLS)
+
+
+def test_gateway_config_validate_against_unfiltered_skips_check():
+    GatewayConfig().validate_against([])
+
+
+def test_gateway_config_validate_against_unknown_target_raises():
+    config = GatewayConfig(targets=["wfc", "wcf"])
+    with pytest.raises(ValueError, match=r"Targets not found on gateway.*\['wcf'\]"):
+        config.validate_against(_AVAILABLE_TOOLS)
+
+
+def test_gateway_config_validate_against_lists_available_targets():
+    config = GatewayConfig(targets=["nope"])
+    with pytest.raises(ValueError, match=r"Available targets: \['dpd', 'gats_kb'"):
+        config.validate_against(_AVAILABLE_TOOLS)
+
+
+def test_gateway_config_validate_against_hints_context_reset():
+    config = GatewayConfig(targets=["nope"])
+    with pytest.raises(ValueError, match="cdk context --reset"):
+        config.validate_against(_AVAILABLE_TOOLS)
+
+
+def test_gateway_config_validate_against_empty_gateway_raises():
+    with pytest.raises(ValueError, match="Targets not found"):
+        GatewayConfig(targets=["wfc"]).validate_against([])
+
+
+def test_gateway_config_validate_against_ignores_tool_name_prefix_overlap():
+    """Test that target 'wfc' does not match a tool from target 'wfc_extra'."""
+    with pytest.raises(ValueError, match="Targets not found"):
+        GatewayConfig(targets=["wfc"]).validate_against(["wfc_extra___run_sql"])
+
+
 # -- BuiltInAgent tests --
 
 

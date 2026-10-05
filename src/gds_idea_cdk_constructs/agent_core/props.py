@@ -12,6 +12,9 @@ _DEFAULT_AGENT_CODE_DIR = str(Path(__file__).parent / "agent_template")
 _GATEWAY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 _TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
 
+# Gateway tools are exposed as "{target}___{tool}".
+_TOOL_NAME_DELIMITER = "___"
+
 
 @dataclass
 class ModelConfig:
@@ -117,6 +120,36 @@ class GatewayConfig:
                     "digits and single underscores between words, starting with "
                     "a letter"
                 )
+
+    def validate_against(self, available_tools: list[str]) -> None:
+        """Check every requested target exists on the gateway.
+
+        Does nothing when ``targets`` is ``None``, since there is nothing to
+        check. Fails the build on a typo or a renamed target, instead of the
+        agent silently ending up with no tools at runtime.
+
+        Args:
+            available_tools: Full tool names published by the gateway, in the
+                form ``{target}___{tool}``.
+
+        Raises:
+            ValueError: If one or more requested targets have no tools on the
+                gateway.
+        """
+        if self.targets is None:
+            return
+
+        available_targets = {
+            tool.split(_TOOL_NAME_DELIMITER, 1)[0] for tool in available_tools
+        }
+        missing = [t for t in self.targets if t not in available_targets]
+        if missing:
+            raise ValueError(
+                f"Targets not found on gateway {self.gateways}: {missing}. "
+                f"Available targets: {sorted(available_targets)}. "
+                "If the target was added to the gateway recently, run "
+                "'cdk context --reset <key>' to refresh the cached tool list."
+            )
 
 
 @dataclass
