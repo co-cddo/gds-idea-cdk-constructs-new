@@ -200,7 +200,7 @@ What the construct does for you:
 - **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
 - **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
 - **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `wfc_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
-- **Existing agents get a new role on their next deploy.** CloudFormation creates the new role, points the runtime at it, then deletes the old one. The role can no longer be replaced in place while keeping its name, so a change that forces replacement needs the role renamed first.
+- **A change that forces the role to be replaced needs the role renamed first.** The role has a fixed name, and CloudFormation cannot create a replacement with the same name while the old one exists.
 - **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
 - **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
 - **Target names use single underscores** (`gats_kb`, not `gats__kb`), so they cannot be confused with the `___` separator.
