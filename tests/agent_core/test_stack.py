@@ -782,7 +782,7 @@ def test_gateway_validation_skipped_if_any_gateway_still_placeholder():
 
 
 def test_gateway_no_lookup_when_unfiltered():
-    """P4 mode: no targets means no lookup, so bad cached data is irrelevant."""
+    """Test that no targets means no lookup, so bad cached data is irrelevant."""
     context = {_tools_context_key("idea-data"): "not json"}
     stack = _gateway_stack(None, context)
     Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
