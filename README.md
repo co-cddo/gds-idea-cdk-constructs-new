@@ -211,7 +211,7 @@ What the construct does for you:
 The agent opens its gateway connections when it is built and closes them when it is replaced. Because one agent now lasts a whole conversation, it is also rebuilt every **15 minutes**, keeping its messages, so a connection that has quietly dropped does not stay broken.
 
 - The turn that triggers a rebuild pays the reconnect time.
-- If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and retries on the next message.
+- If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and tries again after 60 seconds, so an unreachable gateway does not slow down every message.
 - If the gateway cannot be reached when a conversation starts, that message fails with an error. The agent never silently runs without its tools.
 
 #### With `CustomAgent`

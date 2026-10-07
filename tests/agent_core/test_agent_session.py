@@ -327,7 +327,9 @@ def test_refresh_copies_messages_so_old_agent_cleanup_cannot_affect_new(
     assert len(second.messages) == 1
 
 
-def test_failed_refresh_keeps_the_old_agent_and_retries_next_turn(built, clock, caplog):
+def test_failed_refresh_keeps_the_old_agent_and_retries_after_the_backoff(
+    built, clock, caplog
+):
     attempts = []
 
     def build_agent(messages):
@@ -347,6 +349,7 @@ def test_failed_refresh_keeps_the_old_agent_and_retries_next_turn(built, clock, 
         clock.now += 900
         with caplog.at_level(logging.ERROR, logger="agent"):
             second = await _run_turn(session, "s1")  # refresh fails
+        clock.now += 60
         third = await _run_turn(session, "s1")  # retries
         return first, second, third
 
@@ -355,6 +358,83 @@ def test_failed_refresh_keeps_the_old_agent_and_retries_next_turn(built, clock, 
     assert first.cleaned_up is True  # only once the retry succeeds
     assert third is not first
     assert "Refreshing agent failed" in caplog.text
+
+
+def test_failed_refresh_is_not_retried_during_the_backoff(clock):
+    """Test that an unreachable gateway does not slow down every turn."""
+    attempts = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) > 1:
+            raise ConnectionError("gateway unreachable")
+        return FakeAgent(list(messages))
+
+    session = AgentSession(
+        build_agent, lambda session_id: [], max_age_seconds=900, clock=clock
+    )
+
+    async def scenario():
+        await _run_turn(session, "s1")
+        clock.now += 900
+        await _run_turn(session, "s1")  # refresh fails: attempt 2
+        clock.now += 59
+        await _run_turn(session, "s1")  # still backing off
+        await _run_turn(session, "s1")  # still backing off
+
+    asyncio.run(scenario())
+    assert len(attempts) == 2
+
+
+def test_failed_refresh_is_retried_again_if_the_retry_also_fails(clock):
+    attempts = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) > 1:
+            raise ConnectionError("gateway unreachable")
+        return FakeAgent(list(messages))
+
+    session = AgentSession(
+        build_agent, lambda session_id: [], max_age_seconds=900, clock=clock
+    )
+
+    async def scenario():
+        await _run_turn(session, "s1")
+        clock.now += 900
+        await _run_turn(session, "s1")  # attempt 2 fails
+        clock.now += 60
+        await _run_turn(session, "s1")  # attempt 3 fails
+        await _run_turn(session, "s1")  # backing off again
+
+    asyncio.run(scenario())
+    assert len(attempts) == 3
+
+
+def test_successful_retry_after_backoff_restarts_the_refresh_clock(clock):
+    attempts = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) == 2:
+            raise ConnectionError("gateway unreachable")
+        return FakeAgent(list(messages))
+
+    session = AgentSession(
+        build_agent, lambda session_id: [], max_age_seconds=900, clock=clock
+    )
+
+    async def scenario():
+        await _run_turn(session, "s1")
+        clock.now += 900
+        await _run_turn(session, "s1")  # attempt 2 fails
+        clock.now += 60
+        await _run_turn(session, "s1")  # attempt 3 succeeds
+        clock.now += 899
+        await _run_turn(session, "s1")  # too soon for another
+
+    asyncio.run(scenario())
+    assert len(attempts) == 3
 
 
 def test_failed_refresh_does_not_clean_up_the_old_agent():
