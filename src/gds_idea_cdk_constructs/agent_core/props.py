@@ -85,8 +85,8 @@ class GatewayConfig:
     Attributes:
         gateways: Names of the gateways to consume. Always a list so a second
             gateway can be added later without an API change.
-        targets: Target names to keep (e.g. ``["wfc"]`` keeps every tool named
-            ``wfc___*``). ``None`` keeps every tool on the gateway, including
+        targets: Target names to keep (e.g. ``["gats"]`` keeps every tool named
+            ``gats___*``). ``None`` keeps every tool on the gateway, including
             targets added in future.
     """
 

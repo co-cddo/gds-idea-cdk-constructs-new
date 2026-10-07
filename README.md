@@ -154,13 +154,13 @@ from gds_idea_cdk_constructs.agent_core import (
     GatewayConfig,
 )
 
-# Only the tools of the "wfc" target
+# Only the tools of the "gats" target
 AgentCore(
     app,
-    "WfcAgent",
+    "GatsAgent",
     props=AgentCoreProperties(
-        runtime_name="wfc_agent",
-        gateway=GatewayConfig(targets=["wfc"]),
+        runtime_name="gats_agent",
+        gateway=GatewayConfig(targets=["gats"]),
     ),
     env=cdk.Environment(account="123456789012", region="eu-west-2"),
 )
@@ -176,7 +176,7 @@ AgentCore(
 )
 ```
 
-Tools are named `{target}___{tool}` (three underscores), so `targets=["wfc"]` keeps `wfc___read_sql`, `wfc___run_sql` and so on.
+Tools are named `{target}___{tool}` (three underscores), so `targets=["gats"]` keeps every tool whose name starts with `gats___`.
 
 What the construct does for you:
 
@@ -199,7 +199,7 @@ What the construct does for you:
 - **The first synth skips the check.** The CDK returns a placeholder until it has fetched the value, then synthesises again. A typo is caught on that second pass.
 - **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
 - **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
-- **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `wfc_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
+- **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `gats_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
 - **A change that forces the role to be replaced needs the role renamed first.** The role has a fixed name, and CloudFormation cannot create a replacement with the same name while the old one exists.
 - **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
 - **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
@@ -278,7 +278,7 @@ Requests must be signed with SigV4 for the `bedrock-agentcore` service. The buil
 | Property | Type | Default | Description |
 |---|---|---|---|
 | `gateways` | `list[str]` | `["idea-data"]` | Gateway names. Lowercase letters, digits and hyphens. |
-| `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["wfc"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
+| `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["gats"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
 
 ## Knowledge Base
 
