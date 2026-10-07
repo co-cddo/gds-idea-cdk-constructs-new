@@ -7,7 +7,7 @@ logger = setup_logging()
 
 import json
 from collections.abc import AsyncGenerator
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 import os
 
@@ -15,6 +15,7 @@ from bedrock_agentcore.memory import MemoryClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
+from starlette.exceptions import HTTPException
 
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
@@ -73,8 +74,11 @@ def get_session_history(session_id: str) -> list:
         if not events:
             return []
 
+        # The API returns newest first. Reversing before the stable sort keeps
+        # events with equal timestamps (user, then assistant) in saved order.
         sorted_events = sorted(
-            events, key=lambda e: e.get("eventTime", "")
+            reversed(events),
+            key=lambda e: e.get("eventTimestamp") or datetime.min.replace(tzinfo=UTC),
         )
         messages = []
         for event in sorted_events:
@@ -248,7 +252,10 @@ async def run_agent_turn(
                     )
 
         # Persist the turn (after the block, so a disconnect while yielding
-        # "done" below cannot discard an agent whose turn already finished)
+        # "done" below cannot discard an agent whose turn already finished).
+        # The turn lock is already released here and these saves block the
+        # event loop. That is safe only because nothing awaits between the
+        # release and the saves, so no other turn can start in between.
         save_interaction(session_id, "user", query)
         save_interaction(session_id, "assistant", response_text)
 
@@ -272,13 +279,17 @@ async def run_agent_turn(
 # ==========================================================================
 
 @app.entrypoint
-async def invoke(payload):
+async def invoke(payload, context):
     """API handler. Expects ``{"prompt": "...", "session_id": "..."}``.
+
+    The payload ``session_id`` must equal the ``runtimeSessionId`` the caller
+    invoked the runtime with, so the container that holds the warm agent is the
+    one serving the conversation.
 
     Returns an async generator streamed as Server-Sent Events.
     """
     query = payload.get("prompt")
-    session_id = payload.get("session_id", "default-session")
+    session_id = context.session_id
 
     logger.info(
         "Invoke | Chars=%d | Session=%s",
@@ -288,6 +299,13 @@ async def invoke(payload):
 
     if not query:
         return {"error": "No prompt provided"}
+
+    if not session_id or payload.get("session_id") != session_id:
+        raise HTTPException(
+            status_code=422,
+            detail="The payload session_id must equal the runtimeSessionId "
+            "used to invoke the agent runtime",
+        )
 
     return run_agent_turn(query, session_id)
 

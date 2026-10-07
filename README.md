@@ -128,11 +128,12 @@ client.invoke_agent_runtime(
 )
 ```
 
-Without it, every message may start in a new container. Nothing breaks, but nothing is reused either.
+The agent rejects a request whose payload `session_id` is missing or differs from the `runtimeSessionId` with HTTP 422. boto3 raises this in the caller as `RuntimeClientError` ("Received error (422) from runtime"); the reason is in the agent's CloudWatch logs. This matters because boto3 makes up a new `runtimeSessionId` when you leave it out, so a forgotten ID would otherwise start a fresh, empty conversation on every message.
 
 Things to know:
 
 - **Warm versus cold history.** A warm container remembers earlier tool calls and their results. After a restart (15 minutes idle, 8 hours maximum) only the saved user and assistant text is reloaded, so the agent may repeat a tool call it already made.
+- **Restart reloads a window, not everything.** After a restart only the newest `max_history` saved messages are loaded (default 20, about 10 turns). Older messages are still in Memory but are not given to the agent.
 - **One turn at a time.** A second message in the same conversation waits for the first to finish.
 - **Failed or abandoned turns.** If a turn fails, or the client disconnects mid-reply, the agent is dropped and rebuilt from Memory on the next message.
 - **A new `session_id`** in the same container starts a fresh agent with that conversation's history.

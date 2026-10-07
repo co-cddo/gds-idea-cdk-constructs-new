@@ -82,7 +82,7 @@ payload = json.dumps({
 
 response = client.invoke_agent_runtime(
     agentRuntimeArn=os.environ["AGENTCORE_RUNTIME_ARN"],
-    runtimeSessionId=session_id,  # same ID for every turn of a conversation
+    runtimeSessionId=session_id,  # must equal the payload session_id
     payload=payload.encode(),
 )
 
