@@ -97,3 +97,89 @@ def test_build_tool_filters_does_not_match_target_suffix_overlap():
 
 def test_create_gateway_clients_empty_for_no_urls():
     assert _gateway.create_gateway_clients((), "eu-west-2", None) == []
+
+
+# -- Gateway connection loss detection --
+
+
+def _tool_use(tool_use_id: str, name: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": tool_use_id, "name": name, "input": {}}}],
+    }
+
+
+def _tool_result(tool_use_id: str, text: str, status: str = "error") -> dict:
+    return {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": tool_use_id,
+                    "status": status,
+                    "content": [{"text": text}],
+                }
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Tool execution failed: Connection to the MCP server was closed",
+        "Error: the client session is not running. Ensure the agent is used",
+    ],
+)
+def test_connection_lost_when_a_gateway_tool_could_not_reach_the_gateway(text):
+    messages = [_tool_use("t1", "gats___run_sql"), _tool_result("t1", text)]
+
+    assert _gateway.gateway_connection_lost(messages) is True
+
+
+def test_connection_not_lost_when_a_tool_reports_its_own_error():
+    messages = [
+        _tool_use("t1", "gats___run_sql"),
+        _tool_result("t1", 'syntax error at or near "SELEC"'),
+    ]
+
+    assert _gateway.gateway_connection_lost(messages) is False
+
+
+def test_connection_not_lost_when_the_gateway_tool_succeeded():
+    messages = [
+        _tool_use("t1", "gats___run_sql"),
+        _tool_result("t1", "Tool execution failed: not an error", status="success"),
+    ]
+
+    assert _gateway.gateway_connection_lost(messages) is False
+
+
+def test_connection_not_lost_when_a_local_tool_fails():
+    """Test that errors from tools not on the gateway do not trigger a rebuild."""
+    messages = [
+        _tool_use("t1", "retrieve"),
+        _tool_result("t1", "Error: knowledge base not found"),
+    ]
+
+    assert _gateway.gateway_connection_lost(messages) is False
+
+
+def test_connection_lost_if_any_of_several_calls_failed():
+    messages = [
+        _tool_use("t1", "gats___run_sql"),
+        _tool_result("t1", "ok", status="success"),
+        _tool_use("t2", "gats___read_sql"),
+        _tool_result("t2", "Tool execution failed: closed"),
+    ]
+
+    assert _gateway.gateway_connection_lost(messages) is True
+
+
+def test_connection_not_lost_for_plain_text_messages():
+    messages = [
+        {"role": "user", "content": "saved text"},
+        {"role": "assistant", "content": [{"text": "Error: this is just prose"}]},
+    ]
+
+    assert _gateway.gateway_connection_lost(messages) is False

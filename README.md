@@ -211,6 +211,7 @@ What the construct does for you:
 The agent opens its gateway connections when it is built and closes them when it is replaced. Because one agent now lasts a whole conversation, it is also rebuilt every **15 minutes**, keeping its messages, so a connection that has quietly dropped does not stay broken.
 
 - The turn that triggers a rebuild pays the reconnect time.
+- A connection can also drop between rebuilds. Strands does not raise an error then: the model receives an error result from the tool (`Tool execution failed: ...`). The agent spots such a result on a gateway tool and rebuilds on the **next** message. The message where the drop happened still gets a poor answer. Errors a tool reports about its own work, such as bad SQL, do not trigger a rebuild. At most one of these rebuilds happens per minute.
 - If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and tries again after 60 seconds, so an unreachable gateway does not slow down every message.
 - If the gateway cannot be reached when a conversation starts, that message fails with an error. The agent never silently runs without its tools.
 

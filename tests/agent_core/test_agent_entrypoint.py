@@ -216,6 +216,16 @@ def test_agents_without_a_gateway_are_never_refreshed(load_agent):
     assert load_agent().agent_session._max_age_seconds is None
 
 
+def test_gateway_agents_check_for_lost_connections(load_agent):
+    module = load_agent(GATEWAY_URLS=json.dumps([GATEWAY_URL]))
+
+    assert module.agent_session._connection_lost is module.gateway_connection_lost
+
+
+def test_agents_without_a_gateway_do_not_check_for_lost_connections(load_agent):
+    assert load_agent().agent_session._connection_lost is None
+
+
 # -- Failing loudly --
 
 

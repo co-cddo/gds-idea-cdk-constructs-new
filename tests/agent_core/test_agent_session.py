@@ -490,3 +490,159 @@ def test_new_session_after_expiry_loads_history_instead_of_refreshing(
 
     asyncio.run(scenario())
     assert loaded == ["s1", "s2"]
+
+
+# -- Rebuild after a broken tool connection --
+
+
+def _broken(messages):
+    return any(m.get("content") == "connection broken" for m in messages)
+
+
+@pytest.fixture
+def watched_session(built, clock):
+    def build_agent(messages):
+        agent = FakeAgent(list(messages))
+        built.append(agent)
+        return agent
+
+    return AgentSession(
+        build_agent,
+        lambda session_id: [],
+        max_age_seconds=900,
+        connection_lost=_broken,
+        clock=clock,
+    )
+
+
+async def _run_turn_adding(session, session_id, *messages):
+    async with session.turn(session_id) as agent:
+        agent.messages.extend(messages)
+        return agent
+
+
+BROKEN = {"role": "user", "content": "connection broken"}
+FINE = {"role": "user", "content": "all good"}
+
+
+def test_agent_is_rebuilt_on_the_turn_after_a_broken_connection(
+    watched_session, built, clock
+):
+    async def scenario():
+        first = await _run_turn_adding(watched_session, "s1", BROKEN)
+        second = await _run_turn(watched_session, "s1")
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert second is not first
+    assert first.cleaned_up is True
+    assert second.messages == [BROKEN]  # the conversation is kept
+    assert len(built) == 2
+
+
+def test_agent_is_not_rebuilt_after_a_healthy_turn(watched_session, built):
+    async def scenario():
+        await _run_turn_adding(watched_session, "s1", FINE)
+        await _run_turn(watched_session, "s1")
+
+    asyncio.run(scenario())
+    assert len(built) == 1
+
+
+def test_only_messages_added_by_the_turn_are_checked(watched_session, built, clock):
+    """Test that a broken result already in the history does not rebuild again."""
+
+    async def scenario():
+        await _run_turn_adding(watched_session, "s1", BROKEN)
+        clock.now += 120
+        await _run_turn(watched_session, "s1")  # rebuilt
+        await _run_turn(watched_session, "s1")  # healthy turn, old error in history
+        await _run_turn(watched_session, "s1")
+
+    asyncio.run(scenario())
+    assert len(built) == 2
+
+
+def test_trimmed_history_does_not_hide_a_broken_connection(watched_session, built):
+    """Test that dropping old messages mid-turn cannot make new ones look old."""
+
+    async def scenario():
+        await _run_turn_adding(watched_session, "s1", FINE, FINE)
+        async with watched_session.turn("s1") as agent:
+            del agent.messages[:2]  # e.g. a sliding window
+            agent.messages.append(dict(BROKEN))
+        await _run_turn(watched_session, "s1")
+
+    asyncio.run(scenario())
+    assert len(built) == 2
+
+
+def test_broken_connection_rebuild_is_logged(watched_session, caplog):
+    async def scenario():
+        with caplog.at_level(logging.WARNING, logger="agent"):
+            await _run_turn_adding(watched_session, "s1", BROKEN)
+
+    asyncio.run(scenario())
+    assert "Tool connection looks broken" in caplog.text
+
+
+def test_rebuilds_for_broken_connections_are_rate_limited(
+    watched_session, built, clock
+):
+    """Test that a tool that always errors cannot cause a rebuild every turn."""
+
+    async def scenario():
+        await _run_turn_adding(watched_session, "s1", BROKEN)
+        await _run_turn_adding(watched_session, "s1", dict(BROKEN))  # rebuild 1
+        await _run_turn_adding(watched_session, "s1", dict(BROKEN))  # within 60s
+        await _run_turn(watched_session, "s1")  # within 60s
+        clock.now += 60
+        await _run_turn(watched_session, "s1")  # window passed: rebuild 2
+
+    asyncio.run(scenario())
+    assert len(built) == 3
+
+
+def test_failed_rebuild_for_a_broken_connection_is_retried_after_backoff(clock, caplog):
+    attempts = []
+
+    def build_agent(messages):
+        attempts.append(1)
+        if len(attempts) == 2:
+            raise ConnectionError("gateway unreachable")
+        return FakeAgent(list(messages))
+
+    session = AgentSession(
+        build_agent,
+        lambda session_id: [],
+        connection_lost=_broken,
+        clock=clock,
+    )
+
+    async def scenario():
+        first = await _run_turn_adding(session, "s1", BROKEN)
+        with caplog.at_level(logging.ERROR, logger="agent"):
+            second = await _run_turn(session, "s1")  # rebuild fails
+        await _run_turn(session, "s1")  # backing off
+        clock.now += 60
+        third = await _run_turn(session, "s1")  # retried
+        return first, second, third
+
+    first, second, third = asyncio.run(scenario())
+    assert second is first
+    assert third is not first
+    assert len(attempts) == 3
+
+
+def test_no_connection_check_without_a_callback(built):
+    session = AgentSession(
+        lambda messages: built.append(FakeAgent(messages)) or built[-1],
+        lambda session_id: [],
+    )
+
+    async def scenario():
+        await _run_turn_adding(session, "s1", BROKEN)
+        await _run_turn(session, "s1")
+
+    asyncio.run(scenario())
+    assert len(built) == 1
