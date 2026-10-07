@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -7,6 +8,12 @@ from aws_cdk.aws_ecr_assets import Platform
 from ..knowledge_base.stack import KnowledgeBase
 
 _DEFAULT_AGENT_CODE_DIR = str(Path(__file__).parent / "agent_template")
+
+_GATEWAY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+_TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+
+# Gateway tools are exposed as "{target}___{tool}".
+_TOOL_NAME_DELIMITER = "___"
 
 
 @dataclass
@@ -66,6 +73,94 @@ class KnowledgeBaseConfig:
 
 
 @dataclass
+class GatewayConfig:
+    """Consume tools from one or more shared AgentCore Gateways.
+
+    Gateways are created and owned by a separate repository. This config only
+    names the gateways to use and, optionally, which targets to keep.
+
+    The ``targets`` allowlist keeps an agent's tool list short and relevant. It
+    is not a security boundary: access is enforced by the gateway itself.
+
+    Attributes:
+        gateways: Names of the gateways to consume. Always a list so a second
+            gateway can be added later without an API change.
+        targets: Target names to keep (e.g. ``["gats"]`` keeps every tool named
+            ``gats___*``). ``None`` keeps every tool on the gateway, including
+            targets added in future.
+    """
+
+    gateways: list[str] = field(default_factory=lambda: ["idea-data"])
+    targets: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.gateways:
+            raise ValueError("gateways must contain at least one gateway name")
+        if len(set(self.gateways)) != len(self.gateways):
+            raise ValueError(f"gateways must not contain duplicates: {self.gateways}")
+        for name in self.gateways:
+            if not _GATEWAY_NAME_PATTERN.match(name):
+                raise ValueError(
+                    f"Invalid gateway name '{name}': use lowercase letters, "
+                    "digits and hyphens, starting with a letter"
+                )
+
+        if self.targets is None:
+            return
+        if not self.targets:
+            raise ValueError(
+                "targets must not be empty; use None to keep every tool on the gateway"
+            )
+        if len(set(self.targets)) != len(self.targets):
+            raise ValueError(f"targets must not contain duplicates: {self.targets}")
+        for target in self.targets:
+            if not _TARGET_NAME_PATTERN.match(target):
+                raise ValueError(
+                    f"Invalid target name '{target}': use lowercase letters, "
+                    "digits and single underscores between words, starting with "
+                    "a letter"
+                )
+
+    def validate_against(
+        self, available_tools: list[str], context_keys: list[str] | None = None
+    ) -> None:
+        """Check every requested target exists on the gateway.
+
+        Does nothing when ``targets`` is ``None``, since there is nothing to
+        check. Fails the build on a typo or a renamed target, instead of the
+        agent silently ending up with no tools at runtime.
+
+        Args:
+            available_tools: Full tool names published by the gateway, in the
+                form ``{target}___{tool}``.
+            context_keys: CDK context keys the tool list was cached under. When
+                given, the error shows the exact command to refresh them.
+
+        Raises:
+            ValueError: If one or more requested targets have no tools on the
+                gateway.
+        """
+        if self.targets is None:
+            return
+
+        available_targets = {
+            tool.split(_TOOL_NAME_DELIMITER, 1)[0] for tool in available_tools
+        }
+        missing = [t for t in self.targets if t not in available_targets]
+        if missing:
+            if context_keys:
+                refresh = "; ".join(f"cdk context --reset '{k}'" for k in context_keys)
+            else:
+                refresh = "cdk context --reset <key>"
+            raise ValueError(
+                f"Targets not found on gateway {self.gateways}: {missing}. "
+                f"Available targets: {sorted(available_targets)}. "
+                "If the target was added to the gateway recently, refresh the "
+                f"cached tool list with: {refresh}"
+            )
+
+
+@dataclass
 class BuiltInAgent:
     """Use the built-in agent template with typed configuration."""
 
@@ -104,6 +199,10 @@ class AgentCoreProperties:
     knowledge_base: KnowledgeBaseConfig | None = None
     """Optional knowledge base attachment. When set, KB env vars and
     bedrock:Retrieve permissions are automatically wired to the runtime."""
+
+    gateway: GatewayConfig | None = None
+    """Optional gateway attachment. When set, the agent consumes tools from the
+    named shared AgentCore Gateway(s)."""
 
     description: str = "An AgentCore Runtime deployed by the Agent Constructs Template"
     """Runtime description."""

@@ -1,8 +1,8 @@
 """Tests for the built-in agent template's entrypoint and turn wiring.
 
 The template is not an importable package (its modules import each other by
-bare name), so ``agent.py`` is loaded by file path with the Strands, AgentCore
-and OpenTelemetry packages stubbed out.
+bare name), so ``agent.py`` is loaded by file path with the Strands, AgentCore,
+MCP and OpenTelemetry packages stubbed out.
 """
 
 import asyncio
@@ -19,7 +19,16 @@ import pytest
 
 from gds_idea_cdk_constructs.agent_core import DEFAULT_AGENT_CODE_DIR
 
-TEMPLATE_MODULES = ("agent", "_config", "_metrics", "_session", "_streaming")
+TEMPLATE_MODULES = (
+    "agent",
+    "_config",
+    "_gateway",
+    "_metrics",
+    "_session",
+    "_streaming",
+)
+GATEWAY_URL = "https://gw-one.example/mcp"
+SECOND_GATEWAY_URL = "https://gw-two.example/mcp"
 
 DEFAULT_STREAM = [
     {"event": {"data": "hi "}},
@@ -52,12 +61,27 @@ def _module(name, **attrs):
     return module
 
 
-@pytest.fixture
-def template(monkeypatch):
-    """Load ``agent.py`` with its SDK dependencies stubbed.
+class FakeMCPClient:
+    """Stands in for ``strands.tools.mcp.MCPClient``."""
 
-    Returns a namespace with the loaded ``module`` and the ``FakeAgent`` class
-    that the module will build.
+    def __init__(self, transport_factory, tool_filters=None):
+        self.transport_factory = transport_factory
+        self.tool_filters = tool_filters
+
+
+@pytest.fixture
+def signed_transports():
+    """Keyword arguments of every SigV4 transport the agent opened."""
+    return []
+
+
+@pytest.fixture
+def load_template(monkeypatch, signed_transports):
+    """Return a function that loads ``agent.py`` with its SDK dependencies stubbed.
+
+    Keyword arguments are set as environment variables before loading. The
+    function returns a namespace with the loaded ``module`` and the
+    ``FakeAgent`` class that the module will build.
     """
 
     class FakeAgent:
@@ -68,6 +92,7 @@ def template(monkeypatch):
         def __init__(self, model, system_prompt, messages, tools):
             self.system_prompt = system_prompt
             self.messages = messages
+            self.tools = tools
             self.queries = []
             self.cleaned_up = False
             type(self).instances.append(self)
@@ -101,6 +126,10 @@ def template(monkeypatch):
         def today(cls):
             return SimpleNamespace(isoformat=lambda: cls.value)
 
+    def aws_iam_streamablehttp_client(**kwargs):
+        signed_transports.append(kwargs)
+        return object()
+
     stubs = {
         "_logging": _module(
             "_logging", setup_logging=lambda: logging.getLogger("agent")
@@ -115,6 +144,14 @@ def template(monkeypatch):
         "strands": _module("strands", Agent=FakeAgent),
         "strands.models": _module(
             "strands.models", BedrockModel=lambda **kwargs: object()
+        ),
+        "strands.tools": _module("strands.tools"),
+        "strands.tools.mcp": _module("strands.tools.mcp", MCPClient=FakeMCPClient),
+        "strands_tools": _module("strands_tools", retrieve="retrieve-tool"),
+        "mcp_proxy_for_aws": _module("mcp_proxy_for_aws"),
+        "mcp_proxy_for_aws.client": _module(
+            "mcp_proxy_for_aws.client",
+            aws_iam_streamablehttp_client=aws_iam_streamablehttp_client,
         ),
         "opentelemetry": _module("opentelemetry"),
         "starlette": _module("starlette"),
@@ -133,26 +170,46 @@ def template(monkeypatch):
     monkeypatch.setenv("MODEL_ID", "test-model")
     monkeypatch.setenv("MEMORY_ID", "test-memory")
     monkeypatch.setenv("SYSTEM_PROMPT", "Today is {today}.")
-    monkeypatch.delenv("KB_ID", raising=False)
+    for name in ("KB_ID", "GATEWAY_URLS", "GATEWAY_TARGETS"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.syspath_prepend(str(DEFAULT_AGENT_CODE_DIR))
+    for name in TEMPLATE_MODULES:
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
-    spec = importlib.util.spec_from_file_location(
-        "agent", Path(DEFAULT_AGENT_CODE_DIR) / "agent.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["agent"] = module
-    try:
+    def load(**env):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        spec = importlib.util.spec_from_file_location(
+            "agent", Path(DEFAULT_AGENT_CODE_DIR) / "agent.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["agent"] = module
         spec.loader.exec_module(module)
         monkeypatch.setattr(module, "date", FakeDate)
-        yield SimpleNamespace(
+        return SimpleNamespace(
             module=module,
             FakeAgent=FakeAgent,
             FakeDate=FakeDate,
             HTTPException=FakeHTTPError,
         )
+
+    try:
+        yield load
     finally:
         for name in TEMPLATE_MODULES:
             sys.modules.pop(name, None)
+
+
+@pytest.fixture
+def template(load_template):
+    """``agent.py`` loaded with no gateway or knowledge base."""
+    return load_template()
+
+
+@pytest.fixture
+def gateway_template(load_template):
+    """``agent.py`` loaded with one gateway and no pinned targets."""
+    return load_template(GATEWAY_URLS=json.dumps([GATEWAY_URL]))
 
 
 async def _collect(generator):
@@ -356,3 +413,137 @@ def test_history_load_failure_returns_no_messages(template, caplog):
     with caplog.at_level(logging.ERROR, logger="agent"):
         assert template.module.get_session_history("s1") == []
     assert "Error loading history" in caplog.text
+
+
+# -- Gateway tools --
+
+
+def _gateway_tools(agent):
+    return [tool for tool in agent.tools if isinstance(tool, FakeMCPClient)]
+
+
+def _build(template, history=()):
+    return template.module.create_agent(list(history))
+
+
+def test_create_agent_has_no_gateway_tools_by_default(template):
+    assert _build(template).tools == []
+
+
+def test_create_agent_passes_one_client_per_gateway_url(load_template):
+    urls = json.dumps([GATEWAY_URL, SECOND_GATEWAY_URL])
+    agent = _build(load_template(GATEWAY_URLS=urls))
+
+    assert len(_gateway_tools(agent)) == 2
+
+
+def test_create_agent_signs_gateway_requests_for_agentcore(
+    gateway_template, signed_transports
+):
+    _gateway_tools(_build(gateway_template))[0].transport_factory()
+
+    assert signed_transports == [
+        {
+            "endpoint": GATEWAY_URL,
+            "aws_service": "bedrock-agentcore",
+            "aws_region": "eu-west-2",
+        }
+    ]
+
+
+def test_create_agent_keeps_every_tool_when_no_targets_are_pinned(gateway_template):
+    assert _gateway_tools(_build(gateway_template))[0].tool_filters is None
+
+
+def test_create_agent_filters_gateway_tools_to_pinned_targets(load_template):
+    template = load_template(
+        GATEWAY_URLS=json.dumps([GATEWAY_URL]), GATEWAY_TARGETS='["gats"]'
+    )
+
+    patterns = _gateway_tools(_build(template))[0].tool_filters["allowed"]
+    assert [p.match("gats___run_sql") is not None for p in patterns] == [True]
+    assert [p.match("dpd___run_sql") is not None for p in patterns] == [False]
+
+
+def test_create_agent_combines_knowledge_base_and_gateway_tools(load_template):
+    template = load_template(GATEWAY_URLS=json.dumps([GATEWAY_URL]), KB_ID="kb-123")
+    agent = _build(template)
+
+    assert agent.tools[0] == "retrieve-tool"
+    assert len(_gateway_tools(agent)) == 1
+
+
+def test_create_agent_passes_history_to_the_agent(template):
+    history = [{"role": "user", "content": [{"text": "hi"}]}]
+
+    assert _build(template, history).messages == history
+
+
+# -- Gateway connection upkeep --
+
+
+def test_gateway_agents_are_refreshed_every_15_minutes(gateway_template):
+    assert gateway_template.module.agent_session._max_age_seconds == 15 * 60
+
+
+def test_agents_without_a_gateway_are_never_refreshed(template):
+    assert template.module.agent_session._max_age_seconds is None
+
+
+def test_gateway_agents_check_for_lost_connections(gateway_template):
+    module = gateway_template.module
+
+    assert module.agent_session._connection_lost is module.gateway_connection_lost
+
+
+def test_agents_without_a_gateway_do_not_check_for_lost_connections(template):
+    assert template.module.agent_session._connection_lost is None
+
+
+# -- Failing loudly --
+
+
+def test_unreachable_gateway_fails_the_turn_loudly(gateway_template, caplog):
+    """Test that an unreachable gateway is an error, not an agent without tools."""
+    module = gateway_template.module
+
+    def connection_refused(**kwargs):
+        raise ConnectionError("gateway unreachable")
+
+    # The real Agent connects to its MCP clients inside its constructor.
+    module.Agent = connection_refused
+    events = []
+
+    async def scenario():
+        async for event in module.run_agent_turn("hi", "s1"):
+            events.append(event)
+
+    with caplog.at_level(logging.ERROR, logger="agent"):
+        with pytest.raises(ConnectionError, match="gateway unreachable"):
+            asyncio.run(scenario())
+
+    assert events == [{"type": "error", "error": "Internal agent error"}]
+    assert "Error during agent turn" in caplog.text
+    assert "gateway unreachable" in caplog.text
+    assert module.memory_client.saved == []
+
+
+def test_agent_does_not_answer_without_tools_after_a_failed_build(gateway_template):
+    """Test that a failed build is not remembered as an agent without tools."""
+    module = gateway_template.module
+    real_agent = module.Agent
+
+    def connection_refused(**kwargs):
+        raise ConnectionError("down")
+
+    async def scenario():
+        module.Agent = connection_refused
+        with pytest.raises(ConnectionError):
+            await _collect(module.run_agent_turn("hi", "s1"))
+        module.Agent = real_agent
+        return await _collect(module.run_agent_turn("hi", "s1"))
+
+    events = asyncio.run(scenario())
+    assert events[-1]["type"] == "done"
+    (agent,) = gateway_template.FakeAgent.instances
+    assert len(_gateway_tools(agent)) == 1

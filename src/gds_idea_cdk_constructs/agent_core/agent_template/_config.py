@@ -1,3 +1,4 @@
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,8 @@ class Config:
     budget_tokens: int
     thinking_enabled: bool
     system_prompt: str
+    gateway_urls: tuple[str, ...] = ()
+    gateway_targets: tuple[str, ...] | None = None
     actor_id: str = "agent"
 
     @classmethod
@@ -23,6 +26,9 @@ class Config:
         system_prompt = os.getenv("SYSTEM_PROMPT") or (
             prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
         )
+        # GATEWAY_TARGETS is only set when the CDK config pins targets.
+        # Absent means "keep every tool on the gateway".
+        gateway_targets = os.getenv("GATEWAY_TARGETS")
         return cls(
             region=os.environ["REGION"],
             model_id=os.environ["MODEL_ID"],
@@ -32,4 +38,10 @@ class Config:
             budget_tokens=int(os.getenv("BUDGET_TOKENS", "4000")),
             thinking_enabled=os.getenv("THINKING_ENABLED", "true").lower() == "true",
             system_prompt=system_prompt,
+            gateway_urls=tuple(json.loads(os.getenv("GATEWAY_URLS", "[]"))),
+            gateway_targets=(
+                tuple(json.loads(gateway_targets))
+                if gateway_targets is not None
+                else None
+            ),
         )
