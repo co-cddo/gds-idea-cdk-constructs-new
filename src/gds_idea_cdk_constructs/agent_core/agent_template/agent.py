@@ -7,7 +7,7 @@ logger = setup_logging()
 
 import json
 from collections.abc import AsyncGenerator
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 import os
 
@@ -65,8 +65,11 @@ def get_session_history(session_id: str) -> list:
         if not events:
             return []
 
+        # The API returns newest first. Reversing before the stable sort keeps
+        # events with equal timestamps (user, then assistant) in saved order.
         sorted_events = sorted(
-            events, key=lambda e: e.get("eventTime", "")
+            reversed(events),
+            key=lambda e: e.get("eventTimestamp") or datetime.min.replace(tzinfo=UTC),
         )
         messages = []
         for event in sorted_events:
