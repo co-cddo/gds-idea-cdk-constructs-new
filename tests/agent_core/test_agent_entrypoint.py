@@ -82,6 +82,12 @@ def template(monkeypatch):
         def cleanup(self):
             self.cleaned_up = True
 
+    class FakeHTTPError(Exception):
+        def __init__(self, status_code, detail=None):
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
     class FakeApp:
         def entrypoint(self, function):
             return function
@@ -111,6 +117,10 @@ def template(monkeypatch):
             "strands.models", BedrockModel=lambda **kwargs: object()
         ),
         "opentelemetry": _module("opentelemetry"),
+        "starlette": _module("starlette"),
+        "starlette.exceptions": _module(
+            "starlette.exceptions", HTTPException=FakeHTTPError
+        ),
     }
     stubs["opentelemetry"].trace = _module(
         "opentelemetry.trace",
@@ -134,7 +144,12 @@ def template(monkeypatch):
     try:
         spec.loader.exec_module(module)
         monkeypatch.setattr(module, "date", FakeDate)
-        yield SimpleNamespace(module=module, FakeAgent=FakeAgent, FakeDate=FakeDate)
+        yield SimpleNamespace(
+            module=module,
+            FakeAgent=FakeAgent,
+            FakeDate=FakeDate,
+            HTTPException=FakeHTTPError,
+        )
     finally:
         for name in TEMPLATE_MODULES:
             sys.modules.pop(name, None)
@@ -169,21 +184,24 @@ def _blob_event(role, content, timestamp):
 # -- Session ID resolution --
 
 
-def test_invoke_rejects_a_request_with_no_runtime_session_id(template):
-    result = _invoke(template, {"prompt": "hi", "session_id": "s1"}, None)
-    assert "runtimeSessionId" in result["error"]
+def _assert_rejected(template, payload, session_id):
+    with pytest.raises(template.HTTPException) as error:
+        _invoke(template, payload, session_id)
+    assert error.value.status_code == 422
+    assert "runtimeSessionId" in error.value.detail
     assert template.FakeAgent.instances == []
+
+
+def test_invoke_rejects_a_request_with_no_runtime_session_id(template):
+    _assert_rejected(template, {"prompt": "hi", "session_id": "s1"}, None)
 
 
 def test_invoke_rejects_a_payload_without_session_id(template):
-    result = _invoke(template, {"prompt": "hi"}, "s1")
-    assert "runtimeSessionId" in result["error"]
+    _assert_rejected(template, {"prompt": "hi"}, "s1")
 
 
 def test_invoke_rejects_a_payload_session_id_that_differs_from_the_header(template):
-    result = _invoke(template, {"prompt": "hi", "session_id": "s2"}, "s1")
-    assert "runtimeSessionId" in result["error"]
-    assert template.FakeAgent.instances == []
+    _assert_rejected(template, {"prompt": "hi", "session_id": "s2"}, "s1")
 
 
 def test_invoke_rejects_an_empty_prompt(template):

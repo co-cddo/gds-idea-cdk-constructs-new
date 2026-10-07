@@ -15,6 +15,7 @@ from bedrock_agentcore.memory import MemoryClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
+from starlette.exceptions import HTTPException
 
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
@@ -276,11 +277,11 @@ async def invoke(payload, context):
         return {"error": "No prompt provided"}
 
     if not session_id or payload.get("session_id") != session_id:
-        logger.warning("Rejected invoke: session_id missing or not matching")
-        return {
-            "error": "The payload session_id must equal the runtimeSessionId "
-            "used to invoke the agent runtime"
-        }
+        raise HTTPException(
+            status_code=422,
+            detail="The payload session_id must equal the runtimeSessionId "
+            "used to invoke the agent runtime",
+        )
 
     return run_agent_turn(query, session_id)
 

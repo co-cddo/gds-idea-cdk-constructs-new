@@ -126,7 +126,7 @@ client.invoke_agent_runtime(
 )
 ```
 
-The agent rejects a request whose payload `session_id` is missing or differs from the `runtimeSessionId`, and returns an error. This matters because boto3 makes up a new `runtimeSessionId` when you leave it out, so a forgotten ID would otherwise start a fresh, empty conversation on every message.
+The agent rejects a request whose payload `session_id` is missing or differs from the `runtimeSessionId` with HTTP 422. boto3 raises this in the caller as `RuntimeClientError` ("Received error (422) from runtime"); the reason is in the agent's CloudWatch logs. This matters because boto3 makes up a new `runtimeSessionId` when you leave it out, so a forgotten ID would otherwise start a fresh, empty conversation on every message.
 
 Things to know:
 
