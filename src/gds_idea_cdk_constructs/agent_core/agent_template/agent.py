@@ -224,7 +224,10 @@ async def run_agent_turn(
                     )
 
         # Persist the turn (after the block, so a disconnect while yielding
-        # "done" below cannot discard an agent whose turn already finished)
+        # "done" below cannot discard an agent whose turn already finished).
+        # The turn lock is already released here and these saves block the
+        # event loop. That is safe only because nothing awaits between the
+        # release and the saves, so no other turn can start in between.
         save_interaction(session_id, "user", query)
         save_interaction(session_id, "assistant", response_text)
 
@@ -248,13 +251,17 @@ async def run_agent_turn(
 # ==========================================================================
 
 @app.entrypoint
-async def invoke(payload):
+async def invoke(payload, context):
     """API handler. Expects ``{"prompt": "...", "session_id": "..."}``.
+
+    The payload ``session_id`` must equal the ``runtimeSessionId`` the caller
+    invoked the runtime with, so the container that holds the warm agent is the
+    one serving the conversation.
 
     Returns an async generator streamed as Server-Sent Events.
     """
     query = payload.get("prompt")
-    session_id = payload.get("session_id", "default-session")
+    session_id = context.session_id
 
     logger.info(
         "Invoke | Chars=%d | Session=%s",
@@ -264,6 +271,13 @@ async def invoke(payload):
 
     if not query:
         return {"error": "No prompt provided"}
+
+    if not session_id or payload.get("session_id") != session_id:
+        logger.warning("Rejected invoke: session_id missing or not matching")
+        return {
+            "error": "The payload session_id must equal the runtimeSessionId "
+            "used to invoke the agent runtime"
+        }
 
     return run_agent_turn(query, session_id)
 
