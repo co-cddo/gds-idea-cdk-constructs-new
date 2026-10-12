@@ -161,7 +161,7 @@ AgentCore(
     "GatsAgent",
     props=AgentCoreProperties(
         runtime_name="gats_agent",
-        gateway=GatewayConfig(targets=["gats"]),
+        gateway=GatewayConfig(gateways=["idea-data"], targets=["gats"]),
     ),
     env=cdk.Environment(account="123456789012", region="eu-west-2"),
 )
@@ -172,7 +172,7 @@ AgentCore(
     "DiaAgent",
     props=AgentCoreProperties(
         runtime_name="dia_agent",
-        gateway=GatewayConfig(),
+        gateway=GatewayConfig(gateways=["idea-data"]),
     ),
 )
 ```
@@ -279,7 +279,7 @@ Requests must be signed with SigV4 for the `bedrock-agentcore` service. The buil
 
 | Property | Type | Default | Description |
 |---|---|---|---|
-| `gateways` | `list[str]` | `["idea-data"]` | Gateway names. Lowercase letters, digits and hyphens. |
+| `gateways` | `list[str]` | *(required)* | Gateway names, e.g. `["idea-data"]`. No default, so a renamed gateway cannot silently break agents. Lowercase letters, digits and hyphens. |
 | `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["gats"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
 
 ## Knowledge Base

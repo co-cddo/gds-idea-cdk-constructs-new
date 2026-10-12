@@ -90,17 +90,23 @@ def test_memory_config_custom_values():
 # -- GatewayConfig tests --
 
 
-def test_gateway_config_defaults():
-    config = GatewayConfig()
+def test_gateway_config_requires_gateways():
+    """Test that gateways has no default, so the gateway must be named."""
+    with pytest.raises(TypeError, match="gateways"):
+        GatewayConfig()
+
+
+def test_gateway_config_requires_gateways_when_only_targets_given():
+    """Test that targets alone no longer falls back to a default gateway."""
+    with pytest.raises(TypeError, match="gateways"):
+        GatewayConfig(targets=["gats"])
+
+
+def test_gateway_config_targets_default_none():
+    """Test that targets defaults to None (keep every tool)."""
+    config = GatewayConfig(gateways=["idea-data"])
     assert config.gateways == ["idea-data"]
     assert config.targets is None
-
-
-def test_gateway_config_default_gateways_not_shared():
-    a = GatewayConfig()
-    b = GatewayConfig()
-    a.gateways.append("other")
-    assert b.gateways == ["idea-data"]
 
 
 def test_gateway_config_custom_values():
@@ -127,12 +133,12 @@ def test_gateway_config_invalid_gateway_name_raises(name):
 
 def test_gateway_config_empty_targets_raises():
     with pytest.raises(ValueError, match="targets must not be empty"):
-        GatewayConfig(targets=[])
+        GatewayConfig(gateways=["idea-data"], targets=[])
 
 
 def test_gateway_config_duplicate_targets_raises():
     with pytest.raises(ValueError, match="targets must not contain duplicates"):
-        GatewayConfig(targets=["wfc", "wfc"])
+        GatewayConfig(gateways=["idea-data"], targets=["wfc", "wfc"])
 
 
 @pytest.mark.parametrize(
@@ -140,11 +146,13 @@ def test_gateway_config_duplicate_targets_raises():
 )
 def test_gateway_config_invalid_target_name_raises(name):
     with pytest.raises(ValueError, match="Invalid target name"):
-        GatewayConfig(targets=[name])
+        GatewayConfig(gateways=["idea-data"], targets=[name])
 
 
 def test_gateway_config_underscore_target_name_allowed():
-    assert GatewayConfig(targets=["gats_kb"]).targets == ["gats_kb"]
+    assert GatewayConfig(gateways=["idea-data"], targets=["gats_kb"]).targets == [
+        "gats_kb"
+    ]
 
 
 _AVAILABLE_TOOLS = [
@@ -156,33 +164,35 @@ _AVAILABLE_TOOLS = [
 
 
 def test_gateway_config_validate_against_passes_for_known_targets():
-    GatewayConfig(targets=["wfc", "gats_kb"]).validate_against(_AVAILABLE_TOOLS)
+    GatewayConfig(gateways=["idea-data"], targets=["wfc", "gats_kb"]).validate_against(
+        _AVAILABLE_TOOLS
+    )
 
 
 def test_gateway_config_validate_against_unfiltered_skips_check():
-    GatewayConfig().validate_against([])
+    GatewayConfig(gateways=["idea-data"]).validate_against([])
 
 
 def test_gateway_config_validate_against_unknown_target_raises():
-    config = GatewayConfig(targets=["wfc", "wcf"])
+    config = GatewayConfig(gateways=["idea-data"], targets=["wfc", "wcf"])
     with pytest.raises(ValueError, match=r"Targets not found on gateway.*\['wcf'\]"):
         config.validate_against(_AVAILABLE_TOOLS)
 
 
 def test_gateway_config_validate_against_lists_available_targets():
-    config = GatewayConfig(targets=["nope"])
+    config = GatewayConfig(gateways=["idea-data"], targets=["nope"])
     with pytest.raises(ValueError, match=r"Available targets: \['dpd', 'gats_kb'"):
         config.validate_against(_AVAILABLE_TOOLS)
 
 
 def test_gateway_config_validate_against_hints_context_reset():
-    config = GatewayConfig(targets=["nope"])
+    config = GatewayConfig(gateways=["idea-data"], targets=["nope"])
     with pytest.raises(ValueError, match="cdk context --reset"):
         config.validate_against(_AVAILABLE_TOOLS)
 
 
 def test_gateway_config_validate_against_shows_exact_reset_command():
-    config = GatewayConfig(targets=["nope"])
+    config = GatewayConfig(gateways=["idea-data"], targets=["nope"])
     with pytest.raises(ValueError, match="Targets not found") as exc_info:
         config.validate_against(_AVAILABLE_TOOLS, context_keys=["ssm:a=1", "ssm:b=2"])
     message = str(exc_info.value)
@@ -193,13 +203,15 @@ def test_gateway_config_validate_against_shows_exact_reset_command():
 
 def test_gateway_config_validate_against_empty_gateway_raises():
     with pytest.raises(ValueError, match="Targets not found"):
-        GatewayConfig(targets=["wfc"]).validate_against([])
+        GatewayConfig(gateways=["idea-data"], targets=["wfc"]).validate_against([])
 
 
 def test_gateway_config_validate_against_ignores_tool_name_prefix_overlap():
     """Test that target 'wfc' does not match a tool from target 'wfc_extra'."""
     with pytest.raises(ValueError, match="Targets not found"):
-        GatewayConfig(targets=["wfc"]).validate_against(["wfc_extra___run_sql"])
+        GatewayConfig(gateways=["idea-data"], targets=["wfc"]).validate_against(
+            ["wfc_extra___run_sql"]
+        )
 
 
 # -- BuiltInAgent tests --
@@ -315,7 +327,8 @@ def test_agent_core_properties_gateway_defaults_to_none():
 
 def test_agent_core_properties_with_gateway():
     props = AgentCoreProperties(
-        runtime_name="test", gateway=GatewayConfig(targets=["wfc"])
+        runtime_name="test",
+        gateway=GatewayConfig(gateways=["idea-data"], targets=["wfc"]),
     )
     assert props.gateway is not None
     assert props.gateway.targets == ["wfc"]

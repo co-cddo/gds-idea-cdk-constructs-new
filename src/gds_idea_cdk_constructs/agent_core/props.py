@@ -83,14 +83,17 @@ class GatewayConfig:
     is not a security boundary: access is enforced by the gateway itself.
 
     Attributes:
-        gateways: Names of the gateways to consume. Always a list so a second
-            gateway can be added later without an API change.
+        gateways: Names of the gateways to consume, e.g. ``["idea-data"]``.
+            Required: the library deliberately has no default gateway name, so
+            a renamed gateway shows up in each agent's code instead of
+            silently breaking it. Always a list so a second gateway can be
+            added later without an API change.
         targets: Target names to keep (e.g. ``["gats"]`` keeps every tool named
             ``gats___*``). ``None`` keeps every tool on the gateway, including
             targets added in future.
     """
 
-    gateways: list[str] = field(default_factory=lambda: ["idea-data"])
+    gateways: list[str]
     targets: list[str] | None = None
 
     def __post_init__(self) -> None:

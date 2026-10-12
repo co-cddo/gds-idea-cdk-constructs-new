@@ -120,7 +120,9 @@ def gateway_unfiltered(cdk_app, cdk_env):
     return AgentCore(
         cdk_app,
         "GatewayStack",
-        props=AgentCoreProperties(runtime_name="gw_agent", gateway=GatewayConfig()),
+        props=AgentCoreProperties(
+            runtime_name="gw_agent", gateway=GatewayConfig(gateways=["idea-data"])
+        ),
         env=cdk_env,
     )
 
@@ -683,7 +685,7 @@ def test_custom_agent_gets_gateway_env_vars_and_permission(cdk_app, cdk_env):
         props=AgentCoreProperties(
             runtime_name="custom_gw",
             agent=CustomAgent(agent_code_directory="tests/fixtures/fake_agent/"),
-            gateway=GatewayConfig(targets=["wfc"]),
+            gateway=GatewayConfig(gateways=["idea-data"], targets=["wfc"]),
         ),
         env=cdk_env,
     )
