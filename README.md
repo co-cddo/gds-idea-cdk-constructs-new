@@ -217,6 +217,107 @@ The agent opens its gateway connections when it is built and closes them when it
 - If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and tries again after 60 seconds, so an unreachable gateway does not slow down every message.
 - If the gateway cannot be reached when a conversation starts, that message fails with an error. The agent never silently runs without its tools.
 
+#### Trying it out
+
+To test against the dev gateway `gds-idea-mcp`, save this as `gateway_test_app.py`. It pins two of the gateway's three targets (`contracts`, `gats-assurance`), so you can see that the third (`service-assessments`) is filtered out.
+
+```python
+import aws_cdk as cdk
+from gds_idea_cdk_constructs.agent_core import (
+    AgentCore,
+    AgentCoreProperties,
+    GatewayConfig,
+    MemoryConfig,
+)
+
+app = cdk.App()
+AgentCore(
+    app,
+    "GatewayE2EAgentStack",
+    props=AgentCoreProperties(
+        runtime_name="gw_e2e_agent",
+        memory=MemoryConfig(name="gw_e2e_agent_memory"),
+        gateway=GatewayConfig(
+            gateways=["gds-idea-mcp"],
+            targets=["contracts", "gats-assurance"],
+        ),
+    ),
+    env=cdk.Environment(account="<dev-account-id>", region="eu-west-2"),
+)
+app.synth()
+```
+
+Before you deploy:
+
+- **The gateway's Cedar policy must permit the agent's role**, `arn:aws:sts::<account>:assumed-role/gw_e2e_agent-eu-west-2`. While the policy engine is in `LOG_ONLY` mode a missing permit is only logged. Under `ENFORCE` the agent would see no tools.
+- **Give each agent its own memory name.** Memory names are unique per account and region, so the example sets `MemoryConfig(name="gw_e2e_agent_memory")` instead of using the default.
+
+Deploy:
+
+```bash
+# If the CDK CLI cannot read your SSO profile, export its credentials first
+eval "$(aws configure export-credentials --profile <dev-profile> --format env)"
+unset AWS_PROFILE
+
+cdk deploy --app "uv run python gateway_test_app.py"
+```
+
+The first synth writes the gateway's tool list to `cdk.context.json` in the directory you run from. Do not commit it.
+
+Ask questions from the CLI, using the `RuntimeArn` stack output. Use the same ID for `--runtime-session-id` and the payload `session_id`, and reuse it to stay in one conversation:
+
+```bash
+ARN=<RuntimeArn output>
+SID=$(uuidgen | tr 'A-Z' 'a-z')
+
+ask() {
+  aws bedrock-agentcore invoke-agent-runtime --region eu-west-2 \
+    --agent-runtime-arn "$ARN" \
+    --runtime-session-id "$SID" \
+    --cli-binary-format raw-in-base64-out \
+    --payload "{\"prompt\":\"$1\",\"session_id\":\"$SID\"}" \
+    out.json >/dev/null && cat out.json; echo
+}
+
+ask "What tools do you have?"
+ask "Use the contracts tools to list the available tables."
+ask "Use the gats-assurance tools to list the available tables."
+```
+
+Or use **Test** on the runtime in the AgentCore console. The console picks its own runtime session ID, so take it from the `Invoke | ... | Session=...` line in the runtime's logs (`/aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT`) and put it in the payload. The payload must be valid JSON (no trailing comma):
+
+```json
+{
+  "prompt": "What tools do you have?",
+  "session_id": "<console session ID>"
+}
+```
+
+What to expect:
+
+| Check | What you see |
+|---|---|
+| Tools | The agent lists only `contracts___*` and `gats-assurance___*` tools. |
+| Tool calls | Questions are answered from real `read_sql` calls. |
+| Agent reuse | `Building agent \| Session=...` appears once per conversation; later turns log `Turn start \| ... \| Messages=N` with N growing. |
+
+Common errors:
+
+| Error | Cause |
+|---|---|
+| `Memory with name ... already exists` on deploy | Another stack uses the same memory name. Set a unique `MemoryConfig(name=...)`, and wait for the rollback before redeploying. |
+| `Received error (422) from runtime` | The payload `session_id` is missing or differs from the runtime session ID. |
+| `Received error (400) from runtime` | The payload is not valid JSON. |
+| `accountID is required when agentRuntimeArn is provided as agentId` | `--agent-runtime-arn` was given the runtime ID or a placeholder, not the full ARN. |
+
+Delete the test agent when you are done:
+
+```bash
+cdk destroy --app "uv run python gateway_test_app.py"
+```
+
+This removes the runtime, its roles and its memory, including the saved conversations (the default `removal_policy` is `DESTROY`). Left behind: the runtime's CloudWatch log group, which AgentCore created outside the stack, and the container image in the CDK assets ECR repository. Delete the log group by hand if you don't want it. The gateway is not touched, because the construct only reads it. If you added a Cedar permit for the test role, remove it from the gateway repository too.
+
 #### With `CustomAgent`
 
 A custom agent gets the same environment variables and `InvokeGateway` permission, but connects itself:
