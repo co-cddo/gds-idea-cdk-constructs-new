@@ -196,6 +196,7 @@ What the construct does for you:
 #### Things to know
 
 - **Pinned targets need a real `env=`.** The check reads the gateway's tool list at synth time, which needs a concrete account and region. With no `targets`, no lookup happens.
+- **The tool list is read from `/gds-idea/gateways/{name}/tools`.** This is an SSM `StringList` (comma-separated `{target}___{tool}` names); a JSON list of strings is also accepted.
 - **The tool list is cached** in `cdk.context.json`. If you add a target that was created after the cache was written, synth fails and prints the exact `cdk context --reset '...'` command to run.
 - **The first synth skips the check.** The CDK returns a placeholder until it has fetched the value, then synthesises again. A typo is caught on that second pass.
 - **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
@@ -204,7 +205,7 @@ What the construct does for you:
 - **A change that forces the role to be replaced needs the role renamed first.** The role has a fixed name, and CloudFormation cannot create a replacement with the same name while the old one exists.
 - **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
 - **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
-- **Target names use single underscores** (`gats_kb`, not `gats__kb`), so they cannot be confused with the `___` separator.
+- **Target names are words joined by a single `_` or `-`** (`gats_kb`, `gats-assurance`; not `gats__kb` or `gats--assurance`), so they cannot be confused with the `___` separator.
 - **Several gateways** can be listed in `gateways=[...]`. A target may live on any of them.
 
 #### How the connection is kept

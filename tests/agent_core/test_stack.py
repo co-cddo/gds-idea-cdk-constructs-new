@@ -791,8 +791,43 @@ def test_gateway_no_lookup_when_unfiltered():
 
 
 def test_gateway_tools_parameter_invalid_json_raises():
-    context = {_tools_context_key("idea-data"): "not json"}
+    context = {_tools_context_key("idea-data"): "[not json"}
     with pytest.raises(ValueError, match="does not contain valid JSON"):
+        _gateway_stack(["wfc"], context)
+
+
+def test_gateway_tools_parameter_string_list_accepted():
+    """Test that the comma-separated StringList form the gateway publishes works."""
+    context = {
+        _tools_context_key("idea-data"): (
+            "contracts___read_sql,contracts___run_sql,"
+            "gats-assurance___read_sql,gats-assurance___run_sql,"
+            "service-assessments___read_sql,service-assessments___run_sql"
+        )
+    }
+    stack = _gateway_stack(
+        ["contracts", "gats-assurance", "service-assessments"], context
+    )
+    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
+
+
+def test_gateway_tools_parameter_string_list_unknown_target_fails_synth():
+    """Test that a typo is still caught when the tools are a StringList."""
+    context = {_tools_context_key("idea-data"): "gats-assurance___read_sql"}
+    with pytest.raises(ValueError, match=r"Targets not found.*\['gats-assurence'\]"):
+        _gateway_stack(["gats-assurence"], context)
+
+
+def test_gateway_tools_parameter_string_list_ignores_whitespace():
+    """Test that spaces and empty entries in the StringList are ignored."""
+    context = {_tools_context_key("idea-data"): " wfc___read_sql , ,dpd___run_sql "}
+    _gateway_stack(["wfc", "dpd"], context)
+
+
+@pytest.mark.parametrize("value", ["", " ", ",", " , "])
+def test_gateway_tools_parameter_empty_string_list_raises(value):
+    context = {_tools_context_key("idea-data"): value}
+    with pytest.raises(ValueError, match="does not list any tools"):
         _gateway_stack(["wfc"], context)
 
 

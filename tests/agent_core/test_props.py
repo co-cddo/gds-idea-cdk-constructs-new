@@ -142,7 +142,19 @@ def test_gateway_config_duplicate_targets_raises():
 
 
 @pytest.mark.parametrize(
-    "name", ["WFC", "1wfc", "wfc-data", "wfc___run_sql", "wfc__x", "wfc_", ""]
+    "name",
+    [
+        "WFC",
+        "1wfc",
+        "wfc___run_sql",
+        "wfc__x",
+        "wfc_",
+        "wfc--x",
+        "wfc-",
+        "-wfc",
+        "wfc_-x",
+        "",
+    ],
 )
 def test_gateway_config_invalid_target_name_raises(name):
     with pytest.raises(ValueError, match="Invalid target name"):
@@ -153,6 +165,19 @@ def test_gateway_config_underscore_target_name_allowed():
     assert GatewayConfig(gateways=["idea-data"], targets=["gats_kb"]).targets == [
         "gats_kb"
     ]
+
+
+@pytest.mark.parametrize("name", ["gats-assurance", "service-assessments"])
+def test_gateway_config_hyphenated_target_name_allowed(name):
+    """Test that hyphenated targets, as used on the dev gateway, are accepted."""
+    assert GatewayConfig(gateways=["idea-data"], targets=[name]).targets == [name]
+
+
+def test_gateway_config_hyphenated_target_validates_against_its_tools():
+    """Test that a hyphenated target is found from its published tools."""
+    GatewayConfig(gateways=["idea-data"], targets=["gats-assurance"]).validate_against(
+        ["gats-assurance___read_sql", "gats-assurance___run_sql"]
+    )
 
 
 _AVAILABLE_TOOLS = [

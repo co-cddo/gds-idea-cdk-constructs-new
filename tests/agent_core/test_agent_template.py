@@ -95,6 +95,14 @@ def test_build_tool_filters_does_not_match_target_suffix_overlap():
     assert not _tool_is_kept(filters, "gats_kb___retrieve")
 
 
+def test_build_tool_filters_keeps_hyphenated_target():
+    """Test that a hyphenated target keeps only its own tools."""
+    filters = _gateway.build_tool_filters(("gats-assurance",))
+    assert _tool_is_kept(filters, "gats-assurance___read_sql")
+    assert not _tool_is_kept(filters, "gats___read_sql")
+    assert not _tool_is_kept(filters, "gats-assurance-extra___read_sql")
+
+
 def test_create_gateway_clients_empty_for_no_urls():
     assert _gateway.create_gateway_clients((), "eu-west-2", None) == []
 

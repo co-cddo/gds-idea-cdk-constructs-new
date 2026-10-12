@@ -10,7 +10,9 @@ from ..knowledge_base.stack import KnowledgeBase
 _DEFAULT_AGENT_CODE_DIR = str(Path(__file__).parent / "agent_template")
 
 _GATEWAY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
-_TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+# Words joined by a single "_" or "-", so a name never contains the "___"
+# tool-name delimiter (e.g. "gats", "gats_kb", "gats-assurance").
+_TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*([_-][a-z0-9]+)*$")
 
 # Gateway tools are exposed as "{target}___{tool}".
 _TOOL_NAME_DELIMITER = "___"
@@ -119,9 +121,9 @@ class GatewayConfig:
         for target in self.targets:
             if not _TARGET_NAME_PATTERN.match(target):
                 raise ValueError(
-                    f"Invalid target name '{target}': use lowercase letters, "
-                    "digits and single underscores between words, starting with "
-                    "a letter"
+                    f"Invalid target name '{target}': use lowercase letters "
+                    "and digits, with single underscores or hyphens between "
+                    "words, starting with a letter"
                 )
 
     def validate_against(

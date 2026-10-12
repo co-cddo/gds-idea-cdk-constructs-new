@@ -20,6 +20,10 @@ from .props import (
 # value_from_lookup returns "dummy-value-for-<path>" until the CDK has fetched it
 _LOOKUP_PLACEHOLDER_PREFIX = "dummy-value-for-"
 
+# A tools value starting with one of these is parsed as JSON; anything else is
+# read as a comma-separated SSM StringList. Tool names never start with them.
+_JSON_START_CHARS = ("[", "{", '"')
+
 
 def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
     """SSM parameter path published by the gateway repository."""
@@ -41,18 +45,27 @@ def _lookup_gateway_tools(scope: IConstruct, gateway_name: str) -> list[str] | N
             concrete account and region.
         gateway_name: Name of the gateway.
 
+    The gateway publishes the parameter as an SSM ``StringList``, which the
+    lookup returns comma-separated. A JSON list of strings is also accepted.
+
     Returns:
         The published ``{target}___{tool}`` names, or ``None`` on the first
         synth, when the CDK has not yet fetched the value and returns a
         placeholder.
 
     Raises:
-        ValueError: If the parameter does not hold a JSON list of strings.
+        ValueError: If the parameter is empty, or looks like JSON but is not
+            a JSON list of strings.
     """
     path = _gateway_ssm_path(gateway_name, "tools")
     value = ssm.StringParameter.value_from_lookup(scope, path)
     if value.startswith(_LOOKUP_PLACEHOLDER_PREFIX):
         return None
+    if not value.lstrip().startswith(_JSON_START_CHARS):
+        tools = [tool.strip() for tool in value.split(",") if tool.strip()]
+        if not tools:
+            raise ValueError(f"SSM parameter {path} does not list any tools")
+        return tools
     try:
         tools = json.loads(value)
     except json.JSONDecodeError as e:
