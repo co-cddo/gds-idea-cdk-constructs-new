@@ -111,6 +111,8 @@ The construct automatically injects these env vars into your container:
 | `MODEL_ID` | Always |
 | `REGION` | Always |
 | `MEMORY_ID` | When `memory` is set |
+| `GATEWAY_URLS` | When `gateway` is set |
+| `GATEWAY_TARGETS` | When `gateway` is set with `targets` |
 
 ### Conversations and `runtimeSessionId`
 
@@ -140,6 +142,193 @@ Things to know:
 
 `CustomAgent` is unaffected: this behaviour lives in the built-in template.
 
+### Using tools from a shared gateway
+
+Tools live in one shared AgentCore Gateway, owned by a separate repository. This construct never creates a gateway: it looks one up and lets the agent use its tools.
+
+```python
+import aws_cdk as cdk
+
+from gds_idea_cdk_constructs.agent_core import (
+    AgentCore,
+    AgentCoreProperties,
+    GatewayConfig,
+)
+
+# Only the tools of the "gats" target
+AgentCore(
+    app,
+    "GatsAgent",
+    props=AgentCoreProperties(
+        runtime_name="gats_agent",
+        gateway=GatewayConfig(gateways=["idea-data"], targets=["gats"]),
+    ),
+    env=cdk.Environment(account="123456789012", region="eu-west-2"),
+)
+
+# Every tool on the gateway, including ones added later
+AgentCore(
+    app,
+    "DiaAgent",
+    props=AgentCoreProperties(
+        runtime_name="dia_agent",
+        gateway=GatewayConfig(gateways=["idea-data"]),
+    ),
+)
+```
+
+Tools are named `{target}___{tool}` (three underscores), so `targets=["gats"]` keeps every tool whose name starts with `gats___`.
+
+What the construct does for you:
+
+- Reads the gateway URL and ARN from `/gds-idea/gateways/{name}/url` and `/arn` at deploy time.
+- Lets the runtime role call the gateway (`bedrock-agentcore:InvokeGateway`, on the exact gateway ARN).
+- Passes `GATEWAY_URLS` (and `GATEWAY_TARGETS`, when you pin targets) to the agent.
+- Checks your targets exist at synth time, so a typo fails the build instead of leaving the agent without tools.
+
+#### Two separate controls
+
+| | Where | What it does |
+|---|---|---|
+| `targets=[...]` | This construct | Keeps the agent's tool list short. Not a security control: it is a filter in the agent's own code. |
+| Cedar policies | The gateway repository | Decides which callers may use which tools. Enforced by the gateway. |
+
+#### Things to know
+
+- **Pinned targets need a real `env=`.** The check reads the gateway's tool list at synth time, which needs a concrete account and region. With no `targets`, no lookup happens.
+- **The tool list is read from `/gds-idea/gateways/{name}/tools`.** This is an SSM `StringList` (comma-separated `{target}___{tool}` names); a JSON list of strings is also accepted.
+- **The tool list is cached** in `cdk.context.json`. If you add a target that was created after the cache was written, synth fails and prints the exact `cdk context --reset '...'` command to run.
+- **The first synth skips the check.** The CDK returns a placeholder until it has fetched the value, then synthesises again. A typo is caught on that second pass.
+- **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
+- **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
+- **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `gats_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
+- **A change that forces the role to be replaced needs the role renamed first.** The role has a fixed name, and CloudFormation cannot create a replacement with the same name while the old one exists.
+- **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
+- **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
+- **Target names are words joined by a single `_` or `-`** (`gats_kb`, `gats-assurance`; not `gats__kb` or `gats--assurance`), so they cannot be confused with the `___` separator.
+- **Several gateways** can be listed in `gateways=[...]`. A target may live on any of them.
+
+#### How the connection is kept
+
+The agent opens its gateway connections when it is built and closes them when it is replaced. Because one agent now lasts a whole conversation, it is also rebuilt every **15 minutes**, keeping its messages, so a connection that has quietly dropped does not stay broken.
+
+- The turn that triggers a rebuild pays the reconnect time.
+- A connection can also drop between rebuilds. Strands does not raise an error then: the model receives an error result from the tool (`Tool execution failed: ...`). The agent spots such a result on a gateway tool and rebuilds on the **next** message. The message where the drop happened still gets a poor answer. Errors a tool reports about its own work, such as bad SQL, do not trigger a rebuild. At most one of these rebuilds happens per minute.
+- If the gateway cannot be reached during a rebuild, the agent carries on with its current connection and tries again after 60 seconds, so an unreachable gateway does not slow down every message.
+- If the gateway cannot be reached when a conversation starts, that message fails with an error. The agent never silently runs without its tools.
+
+#### Trying it out
+
+To test against the dev gateway `gds-idea-mcp`, save this as `gateway_test_app.py`. It pins two of the gateway's three targets (`contracts`, `gats-assurance`), so you can see that the third (`service-assessments`) is filtered out.
+
+```python
+import aws_cdk as cdk
+from gds_idea_cdk_constructs.agent_core import (
+    AgentCore,
+    AgentCoreProperties,
+    GatewayConfig,
+    MemoryConfig,
+)
+
+app = cdk.App()
+AgentCore(
+    app,
+    "GatewayE2EAgentStack",
+    props=AgentCoreProperties(
+        runtime_name="gw_e2e_agent",
+        memory=MemoryConfig(name="gw_e2e_agent_memory"),
+        gateway=GatewayConfig(
+            gateways=["gds-idea-mcp"],
+            targets=["contracts", "gats-assurance"],
+        ),
+    ),
+    env=cdk.Environment(account="<dev-account-id>", region="eu-west-2"),
+)
+app.synth()
+```
+
+Before you deploy:
+
+- **The gateway's Cedar policy must permit the agent's role**, `arn:aws:sts::<account>:assumed-role/gw_e2e_agent-eu-west-2`. While the policy engine is in `LOG_ONLY` mode a missing permit is only logged. Under `ENFORCE` the agent would see no tools.
+- **Give each agent its own memory name.** Memory names are unique per account and region, so the example sets `MemoryConfig(name="gw_e2e_agent_memory")` instead of using the default.
+
+Deploy:
+
+```bash
+# If the CDK CLI cannot read your SSO profile, export its credentials first
+eval "$(aws configure export-credentials --profile <dev-profile> --format env)"
+unset AWS_PROFILE
+
+cdk deploy --app "uv run python gateway_test_app.py"
+```
+
+The first synth writes the gateway's tool list to `cdk.context.json` in the directory you run from. Do not commit it.
+
+Ask questions from the CLI, using the `RuntimeArn` stack output. Use the same ID for `--runtime-session-id` and the payload `session_id`, and reuse it to stay in one conversation:
+
+```bash
+ARN=<RuntimeArn output>
+SID=$(uuidgen | tr 'A-Z' 'a-z')
+
+ask() {
+  aws bedrock-agentcore invoke-agent-runtime --region eu-west-2 \
+    --agent-runtime-arn "$ARN" \
+    --runtime-session-id "$SID" \
+    --cli-binary-format raw-in-base64-out \
+    --payload "{\"prompt\":\"$1\",\"session_id\":\"$SID\"}" \
+    out.json >/dev/null && cat out.json; echo
+}
+
+ask "What tools do you have?"
+ask "Use the contracts tools to list the available tables."
+ask "Use the gats-assurance tools to list the available tables."
+```
+
+Or use **Test** on the runtime in the AgentCore console. The console picks its own runtime session ID, so take it from the `Invoke | ... | Session=...` line in the runtime's logs (`/aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT`) and put it in the payload. The payload must be valid JSON (no trailing comma):
+
+```json
+{
+  "prompt": "What tools do you have?",
+  "session_id": "<console session ID>"
+}
+```
+
+What to expect:
+
+| Check | What you see |
+|---|---|
+| Tools | The agent lists only `contracts___*` and `gats-assurance___*` tools. |
+| Tool calls | Questions are answered from real `read_sql` calls. |
+| Agent reuse | `Building agent \| Session=...` appears once per conversation; later turns log `Turn start \| ... \| Messages=N` with N growing. |
+
+Common errors:
+
+| Error | Cause |
+|---|---|
+| `Memory with name ... already exists` on deploy | Another stack uses the same memory name. Set a unique `MemoryConfig(name=...)`, and wait for the rollback before redeploying. |
+| `Received error (422) from runtime` | The payload `session_id` is missing or differs from the runtime session ID. |
+| `Received error (400) from runtime` | The payload is not valid JSON. |
+| `accountID is required when agentRuntimeArn is provided as agentId` | `--agent-runtime-arn` was given the runtime ID or a placeholder, not the full ARN. |
+
+Delete the test agent when you are done:
+
+```bash
+cdk destroy --app "uv run python gateway_test_app.py"
+```
+
+This removes the runtime, its roles and its memory, including the saved conversations (the default `removal_policy` is `DESTROY`). Left behind: the runtime's CloudWatch log group, which AgentCore created outside the stack, and the container image in the CDK assets ECR repository. Delete the log group by hand if you don't want it. The gateway is not touched, because the construct only reads it. If you added a Cedar permit for the test role, remove it from the gateway repository too.
+
+#### With `CustomAgent`
+
+A custom agent gets the same environment variables and `InvokeGateway` permission, but connects itself:
+
+| Variable | Value |
+|---|---|
+| `GATEWAY_URLS` | JSON list of MCP endpoint URLs |
+| `GATEWAY_TARGETS` | JSON list of target names. Only set when you pin targets; absent means keep everything. |
+
+Requests must be signed with SigV4 for the `bedrock-agentcore` service. The built-in agent template shows how (`agent_template/_gateway.py`).
+
 ### Configuration reference
 
 #### `AgentCoreProperties`
@@ -150,6 +339,7 @@ Things to know:
 | `agent` | `BuiltInAgent \| CustomAgent` | `BuiltInAgent()` | Agent mode |
 | `memory` | `MemoryConfig \| None` | `MemoryConfig()` | Memory config, or `None` to skip |
 | `knowledge_base` | `KnowledgeBaseConfig \| None` | `None` | Optional KB attachment (auto-wires env vars + permissions) |
+| `gateway` | `GatewayConfig \| None` | `None` | Optional shared-gateway attachment (auto-wires URL, permissions, env vars) |
 | `description` | `str` | `"An AgentCore Runtime..."` | Runtime description |
 | `platform` | `Platform` | `LINUX_ARM64` | Docker build target |
 | `removal_policy` | `RemovalPolicy` | `DESTROY` | Removal policy for stateful resources |
@@ -186,6 +376,13 @@ Things to know:
 |---|---|---|---|
 | `name` | `str` | `"chat_session_store"` | Memory store name |
 | `description` | `str` | `"Stores short-term..."` | Memory store description |
+
+#### `GatewayConfig`
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `gateways` | `list[str]` | *(required)* | Gateway names, e.g. `["idea-data"]`. No default, so a renamed gateway cannot silently break agents. Lowercase letters, digits and hyphens. |
+| `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["gats"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
 
 ## Knowledge Base
 

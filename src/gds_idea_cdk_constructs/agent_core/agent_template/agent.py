@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
 from _config import Config
+from _gateway import create_gateway_clients, gateway_connection_lost
 from _session import AgentSession
 
 # --- Configuration (injected via CDK environment variables) ---
@@ -43,6 +44,13 @@ if KB_ID:
     from strands_tools import retrieve
     tools = [retrieve]
     logger.info("KB retrieval tool enabled (KB_ID=%s)", KB_ID)
+
+if config.gateway_urls:
+    logger.info(
+        "Gateway tools enabled (Gateways=%d, Targets=%s)",
+        len(config.gateway_urls),
+        list(config.gateway_targets) if config.gateway_targets is not None else "all",
+    )
 
 
 
@@ -169,7 +177,14 @@ def create_agent(history: list[dict]) -> Agent:
         ),
         system_prompt=build_system_prompt(),
         messages=history,
-        tools=tools,
+        # The agent owns these connections: Strands opens them here and closes
+        # them in agent.cleanup(), when AgentSession replaces the agent.
+        tools=[
+            *tools,
+            *create_gateway_clients(
+                config.gateway_urls, config.region, config.gateway_targets
+            ),
+        ],
     )
 
 
@@ -179,7 +194,16 @@ def create_agent(history: list[dict]) -> Agent:
 
 # One agent per conversation: rebuilt from Memory only when the session changes
 # or a turn fails. Callers must send runtimeSessionId for turns to share a VM.
-agent_session = AgentSession(create_agent, get_session_history)
+# With gateways, the agent is also rebuilt every 15 minutes (keeping its
+# messages) so its gateway connections are renewed, and on the turn after a
+# gateway tool call fails to connect.
+GATEWAY_REFRESH_SECONDS = 15 * 60
+agent_session = AgentSession(
+    create_agent,
+    get_session_history,
+    max_age_seconds=GATEWAY_REFRESH_SECONDS if config.gateway_urls else None,
+    connection_lost=gateway_connection_lost if config.gateway_urls else None,
+)
 
 
 async def run_agent_turn(
