@@ -30,7 +30,11 @@ if not RUNTIME_ARN:
     )
     st.stop()
 
-# Session ID for conversation continuity (AgentCore Memory)
+# One ID per conversation. It is sent both as the AgentCore runtimeSessionId
+# (routes every turn to the same container, which keeps the agent warm) and in
+# the payload (keys the conversation history in AgentCore Memory).
+# AgentCore requires runtimeSessionId to be at least 33 characters; a uuid4
+# string is 36.
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
@@ -48,6 +52,7 @@ if prompt:
 
     response = client.invoke_agent_runtime(
         agentRuntimeArn=RUNTIME_ARN,
+        runtimeSessionId=st.session_state.session_id,
         payload=payload.encode(),
     )
 
