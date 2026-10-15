@@ -1,11 +1,18 @@
+from __future__ import annotations
+
 import json
 import logging
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import boto3
-from aws_cdk import Environment as CdkEnvironment
+
+if TYPE_CHECKING:
+    # Annotation only. Importing aws_cdk starts a Node process (through jsii), which
+    # containers that only need DeploymentEnvironment do not have.
+    from aws_cdk import Environment as CdkEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +23,14 @@ class DeploymentEnvironment(Enum):
     TESTING = "testing"
 
     @classmethod
-    def from_cdk_env(cls, cdk_env: CdkEnvironment) -> "DeploymentEnvironment":
+    def from_cdk_env(cls, cdk_env: CdkEnvironment) -> DeploymentEnvironment:
         """Get environment from CDK Environment."""
         if not cdk_env.account:
             raise ValueError("CDK Environment must have account specified")
         return cls.from_account_id(cdk_env.account)
 
     @classmethod
-    def from_account_id(cls, account_id: str) -> "DeploymentEnvironment":
+    def from_account_id(cls, account_id: str) -> DeploymentEnvironment:
         """Get environment from account ID."""
         for env in cls:
             if env.value == account_id:
@@ -100,7 +107,7 @@ class DeploymentConfig:
     @classmethod
     def from_dict(
         cls, cdk_env: CdkEnvironment, config: dict[str, str]
-    ) -> "DeploymentConfig":
+    ) -> DeploymentConfig:
         """Create DeploymentConfig from an explicit config dict.
 
         Useful for testing or local development without Parameter Store access.
@@ -213,7 +220,7 @@ class AppConfig:
         )
 
     @classmethod
-    def from_pyproject(cls, path: str = "pyproject.toml") -> "AppConfig":
+    def from_pyproject(cls, path: str = "pyproject.toml") -> AppConfig:
         """Load config from pyproject.toml [tool.webapp] section"""
         with open(path, "rb") as f:
             config = tomllib.load(f)
