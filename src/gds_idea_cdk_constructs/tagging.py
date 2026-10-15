@@ -16,13 +16,16 @@ Example:
     ```
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-
-from aws_cdk import Tags
-from constructs import Construct
+from typing import TYPE_CHECKING
 
 from .config import DeploymentEnvironment
+
+if TYPE_CHECKING:
+    from constructs import Construct
 
 __all__ = ["OWNER_SEPARATOR", "IdeaTags"]
 
@@ -171,6 +174,10 @@ class IdeaTags:
         Args:
             scope: The construct to tag, normally the CDK ``App``.
         """
+        # Imported here, not at the top of the module: importing aws_cdk starts a Node
+        # process (through jsii), and importing this package must work without Node.
+        from aws_cdk import Tags
+
         for key, value in self.tags.items():
             Tags.of(scope).add(key, value)
             # Also tag the CloudFormation stack itself explicitly. The first
