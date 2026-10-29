@@ -104,6 +104,8 @@ AgentCore(
 
 Your directory must contain a `Dockerfile` and an `agent.py` entrypoint. The built-in `agent_template/` can be copied as a starting point.
 
+AgentCore only runs arm64 images, but most CI runners are x86 with no arm64 emulator. The built-in template still builds there: its first stage downloads arm64 wheels on the build machine, and the final arm64 stage only copies files in. If your own `Dockerfile` has `RUN` lines in its final stage, build on an arm64 machine or set up QEMU in your CI.
+
 The construct automatically injects these env vars into your container:
 
 | Variable | When |
