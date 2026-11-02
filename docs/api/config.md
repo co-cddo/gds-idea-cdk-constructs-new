@@ -33,6 +33,13 @@ The configuration system automatically selects appropriate settings based on you
       show_root_heading: true
       heading_level: 3
 
+## StackId
+
+::: gds_idea_cdk_constructs.config.StackId
+    options:
+      show_root_heading: true
+      heading_level: 3
+
 ## Usage Examples
 
 ### Basic Configuration

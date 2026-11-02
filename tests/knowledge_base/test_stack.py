@@ -787,3 +787,51 @@ def test_grant_retrieve_adds_bedrock_retrieve_permission(kb_no_sync):
             }
         },
     )
+
+
+def test_grant_retrieve_two_knowledge_bases_same_role_no_sid_clash(
+    cdk_app, deployment_config, kb_no_sync
+):
+    """Test that two knowledge bases can grant retrieve to the same role."""
+    kb_other = KnowledgeBase(
+        cdk_app,
+        deployment_config=deployment_config,
+        app_config=AppConfig(app_name="otherapp", framework="streamlit"),
+        kb_props=KnowledgeBaseProps(enable_auto_sync=False),
+    )
+    consumer_stack, role = _make_consumer_role(kb_no_sync)
+
+    kb_no_sync.grant_retrieve(role)
+    kb_other.grant_retrieve(role)
+
+    template = Template.from_stack(consumer_stack)
+    policies = template.find_resources("AWS::IAM::Policy")
+    statements = next(iter(policies.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+    retrieve = [s for s in statements if s["Action"] == "bedrock:Retrieve"]
+    assert len(retrieve) == 2
+    assert all("Sid" not in s for s in retrieve)
+
+
+def test_grant_retrieve_applies_sid_override(kb_no_sync):
+    """Test that grant_retrieve sets the given sid on the retrieve statement."""
+    consumer_stack, role = _make_consumer_role(kb_no_sync)
+
+    kb_no_sync.grant_retrieve(role, sid="MyKbRetrieve")
+
+    template = Template.from_stack(consumer_stack)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {"Sid": "MyKbRetrieve", "Action": "bedrock:Retrieve"}
+                        )
+                    ]
+                )
+            }
+        },
+    )
