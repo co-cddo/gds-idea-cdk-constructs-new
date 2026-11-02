@@ -579,4 +579,89 @@ for result in response["retrievalResults"]:
 | `ChunkingConfig.hierarchical(max_tokens, overlap_percentage)` | `300`, `20` | Two-level parent/child chunks |
 | `ChunkingConfig.semantic(max_tokens, buffer_size, breakpoint_percentile_threshold)` | `300`, `0`, `95` | Split on semantic boundaries |
 
-Docs https://co-cddo.github.io/gds-idea-cdk-constructs-new/
+## Permissions
+
+Reusable IAM grant helpers for common AWS resource access patterns: Athena/Glue/S3/KMS, Secrets Manager, Bedrock, DynamoDB, and rAPId's shared Athena-backed database. Each `grant_*` function accepts an `iam.IGrantable` (a `Role`, `Function`, `Instance`, `Service`, etc.) and attaches a scoped IAM policy statement directly — no CDK resource construct needed for buckets/tables/secrets you don't own.
+
+### Quick start
+
+```python
+from gds_idea_cdk_constructs.permissions import (
+    grant_secret_read,
+    grant_bedrock_invoke_model,
+    grant_dynamodb_read_write_data,
+    grant_s3_read,
+)
+
+# Read a secret whose name starts with "my-app/"
+grant_secret_read(webapp.task_role, stack, "my-app/access")
+
+# Invoke any Bedrock foundation model or inference profile
+grant_bedrock_invoke_model(webapp.task_role, stack)
+
+# Read/write a DynamoDB table (including its Global/Local Secondary Indexes)
+grant_dynamodb_read_write_data(webapp.task_role, stack, "my-table")
+
+# Read an S3 bucket you don't own
+grant_s3_read(webapp.task_role, "my-data-bucket")
+```
+
+S3 and DynamoDB helpers come in `read`, `write` and `read_write` variants, each adding a single policy statement.
+
+### Athena, Glue, S3, and KMS
+
+```python
+from gds_idea_cdk_constructs.permissions import AthenaSettings, grant_athena
+athena_settings = AthenaSettings(cdk_env)
+grant_athena(webapp.task_role, athena_settings, "my_database", "my-data-bucket")
+```
+
+`AthenaSettings` fetches the current account's Athena query results bucket name and KMS key ARN from the `/gds-idea-athena` SSM parameter (mirrors `DeploymentConfig`'s fetch pattern, kept separate since it's permissions-specific). Use `AthenaSettings.from_dict(cdk_env, config)` in tests or local development to avoid a real Parameter Store call.
+
+If you need finer-grained control (e.g. only Glue access, or a different combination), the individual grant helpers `grant_athena_workgroup`, `grant_glue_catalog`, `grant_s3_read` / `grant_s3_write` / `grant_s3_read_write`, `grant_kms_encrypt_decrypt`, and `grant_athena_results` (the S3 + KMS composite for the results bucket alone) are all available too. `grant_athena_workgroup` and `grant_glue_catalog` take an `athena_settings` (instead of `stack`), which provides the account/region used to build their ARNs.
+
+### rAPId database access
+
+```python
+from gds_idea_cdk_constructs.permissions import grant_rapid_database
+
+grant_rapid_database(webapp.task_role, deployment_config, "my-app/rapid")
+```
+
+In production, grants direct access to rAPId's Athena workgroup, Glue catalog, data bucket, and query results bucket/KMS key (rAPId lives in the production account). In every other environment, grants `sts:AssumeRole` on rAPId's cross-account role instead, since access must be brokered through the production account. A secret holding rAPId API credentials is always granted, regardless of environment.
+
+`AthenaSettings` is only needed in production, where it is fetched from Parameter Store for `deployment_config.cdk_env` unless you pass your own with `athena_settings=`. Other environments never read it.
+
+### Configuration reference
+
+#### Grant helpers
+
+| Function | Grants | Key parameters |
+|---|---|---|
+| `grant_athena` | Composite: workgroup + Glue catalog + S3 data bucket + Athena results access for a table | `athena_settings`, `database_name`, `bucket_name`, `write=True`, `table_name_pattern="*"`, `workgroup_name="primary"`, `sid_prefix` |
+| `grant_athena_workgroup` | Run/manage Athena queries in a workgroup | `workgroup_name="primary"`, `region` |
+| `grant_glue_catalog` | Read a Glue database and its tables | `database_name`, `table_name_pattern="*"`, `region` |
+| `grant_s3_read` | Read an S3 bucket | `bucket_name` |
+| `grant_s3_write` | Write to an S3 bucket | `bucket_name` |
+| `grant_s3_read_write` | Read and write an S3 bucket | `bucket_name` |
+| `grant_kms_encrypt_decrypt` | Decrypt/encrypt with a KMS key | `key_arn` |
+| `grant_athena_results` | Composite: S3 read/write + KMS access to the account's Athena results | `athena_settings`, `sid_prefix` |
+| `grant_secret_read` | Read secrets matching a name prefix | `secret_name_prefix` |
+| `grant_bedrock_invoke_model` | Invoke Bedrock foundation models and inference profiles | `model_ids=None` (all foundation models), `inference_profile_ids=None` (all inference profiles) |
+| `grant_dynamodb_read_data` | Read a DynamoDB table and its indexes | `table_name`, `include_indexes=True`, `region` |
+| `grant_dynamodb_write_data` | Write to a DynamoDB table and its indexes | `table_name`, `include_indexes=True`, `region` |
+| `grant_dynamodb_read_write_data` | Read and write a DynamoDB table and its indexes | `table_name`, `include_indexes=True`, `region` |
+| `grant_rapid_database` | Composite: query rAPId's shared database (direct in prod, assumed-role elsewhere) | `deployment_config`, `secret_name`, `athena_settings=None` |
+
+Every function's first argument is an `iam.IGrantable` (`Role`, `Function`, `Instance`, `Service`, etc.), and every function accepts an optional `sid` keyword to name the statement. `sid` is omitted by default — a `Sid` only needs to be unique within a policy document if one is explicitly set, so all of these are safe to call multiple times on the same principal.
+
+#### `AthenaSettings`
+
+| Property | Type | Description |
+|---|---|---|
+| `account` | `str` | AWS account ID the settings apply to |
+| `region` | `str` | AWS region the settings apply to |
+| `results_bucket_name` | `str` | Account's Athena query results S3 bucket |
+| `kms_key_arn` | `str` | KMS key ARN used to encrypt/decrypt query results |
+
+Fetched from the `/gds-idea-athena` SSM parameter, a flat JSON object holding that account's `results_bucket_name` and `kms_key_arn`.

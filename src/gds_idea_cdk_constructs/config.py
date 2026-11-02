@@ -55,6 +55,14 @@ class DeploymentEnvironment(Enum):
         ]
 
 
+# Role in the production account that non-production environments assume to
+# reach rAPId and other production data.
+RAPID_CROSS_ACCOUNT_ROLE_ARN = (
+    f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
+    ":role/assume_role_for_development_account"
+)
+
+
 @dataclass
 class DeploymentConfig:
     """Configuration for GDS Idea web applications.
@@ -179,10 +187,7 @@ class DeploymentConfig:
         if self.environment == DeploymentEnvironment.PRODUCTION:
             self.cross_account_role_arn: str | None = None
         else:
-            self.cross_account_role_arn = (
-                f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
-                ":role/assume_role_for_development_account"
-            )
+            self.cross_account_role_arn = RAPID_CROSS_ACCOUNT_ROLE_ARN
 
     def _fetch_from_parameter_store(self) -> dict[str, str]:
         """Fetch configuration from AWS Systems Manager Parameter Store.
@@ -241,3 +246,41 @@ class AppConfig:
             "fastapi": "/health",
         }
         return paths.get(framework, "/health")
+
+
+class StackId:
+    """Generates consistent CDK stack IDs from app and deployment config."""
+
+    def __init__(self, project: str, phase: str) -> None:
+        self.project = project
+        self.phase = phase
+
+    @classmethod
+    def from_config(
+        cls, app_config: AppConfig, deployment_config: DeploymentConfig
+    ) -> StackId:
+        """Build a StackId from an AppConfig and DeploymentConfig.
+
+        Args:
+            app_config: Provides the project name (`app_config.app_name`).
+            deployment_config: Provides the environment short name
+                (`deployment_config.environment.short_name`, e.g. "dev"/"prod").
+
+        Returns:
+            A configured StackId instance.
+        """
+        return cls(
+            project=app_config.app_name,
+            phase=deployment_config.environment.short_name,
+        )
+
+    def __call__(self, stack_name: str) -> str:
+        """Build a full, consistent stack ID.
+
+        Args:
+            stack_name: The logical name of the stack (e.g. "PaperStore").
+
+        Returns:
+            A string of the form "{project}-{stack_name}-{phase}".
+        """
+        return f"{self.project}-{stack_name}-{self.phase}"
