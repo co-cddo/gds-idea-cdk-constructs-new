@@ -1,13 +1,17 @@
 """Unit tests for the composite rAPId database access IAM grant helper."""
 
+from unittest.mock import patch
+
 import pytest
 from aws_cdk import App, Environment as CdkEnvironment, Stack, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
-from gds_idea_cdk_constructs.config import DeploymentConfig, DeploymentEnvironment
-from gds_idea_cdk_constructs.permissions.rapid import grant_rapid_database_access
-from gds_idea_cdk_constructs.permissions.settings import (
+from gds_idea_cdk_constructs.config import (
     RAPID_CROSS_ACCOUNT_ROLE_ARN,
+    DeploymentConfig,
+)
+from gds_idea_cdk_constructs.permissions.rapid import grant_rapid_database
+from gds_idea_cdk_constructs.permissions.settings import (
     RAPID_DATA_BUCKET_NAME,
     RAPID_GLUE_DATABASE,
     RAPID_REGION,
@@ -16,14 +20,8 @@ from gds_idea_cdk_constructs.permissions.settings import (
 from tests.conftest import TEST_CONFIG
 
 ATHENA_CONFIG = {
-    "992382722318": {
-        "results_bucket_name": "gds-idea-athena-query-results-development",
-        "kms_key_arn": "arn:aws:kms:eu-west-2:992382722318:key/dev-key-id",
-    },
-    "588077357019": {
-        "results_bucket_name": "gds-idea-athena-query-results-production",
-        "kms_key_arn": "arn:aws:kms:eu-west-2:588077357019:key/prod-key-id",
-    },
+    "results_bucket_name": "gds-idea-athena-query-results-production",
+    "kms_key_arn": "arn:aws:kms:eu-west-2:588077357019:key/prod-key-id",
 }
 
 
@@ -69,18 +67,18 @@ def prod_deployment_config(prod_cdk_env):
 
 
 @pytest.fixture
-def athena_settings():
+def athena_settings(prod_cdk_env):
     """Fixture for AthenaSettings built from an explicit dict."""
-    return AthenaSettings.from_dict(DeploymentEnvironment.PRODUCTION, ATHENA_CONFIG)
+    return AthenaSettings.from_dict(prod_cdk_env, ATHENA_CONFIG)
 
 
-def test_grant_rapid_database_access_always_grants_secret(
+def test_grant_rapid_database_always_grants_secret(
     dev_stack, dev_deployment_config, athena_settings
 ):
     """Test that the secret access statement is always present."""
     grantee = _grantee(dev_stack)
-    grant_rapid_database_access(
-        grantee, dev_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, dev_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(dev_stack)
 
@@ -96,13 +94,13 @@ def test_grant_rapid_database_access_always_grants_secret(
     )
 
 
-def test_grant_rapid_database_access_non_production_assumes_cross_account_role(
+def test_grant_rapid_database_non_production_assumes_cross_account_role(
     dev_stack, dev_deployment_config, athena_settings
 ):
     """Test that non-production grants sts:AssumeRole on the cross-account role."""
     grantee = _grantee(dev_stack)
-    grant_rapid_database_access(
-        grantee, dev_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, dev_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(dev_stack)
 
@@ -128,13 +126,13 @@ def test_grant_rapid_database_access_non_production_assumes_cross_account_role(
     )
 
 
-def test_grant_rapid_database_access_non_production_assume_role_has_no_sid(
+def test_grant_rapid_database_non_production_assume_role_has_no_sid(
     dev_stack, dev_deployment_config, athena_settings
 ):
     """Test that the sts:AssumeRole statement never sets a Sid."""
     grantee = _grantee(dev_stack)
-    grant_rapid_database_access(
-        grantee, dev_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, dev_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(dev_stack)
     policy = template.find_resources("AWS::IAM::Policy")
@@ -148,13 +146,13 @@ def test_grant_rapid_database_access_non_production_assume_role_has_no_sid(
     assert "Sid" not in assume_role_statement
 
 
-def test_grant_rapid_database_access_non_production_only_grants_two_statements(
+def test_grant_rapid_database_non_production_only_grants_two_statements(
     dev_stack, dev_deployment_config, athena_settings
 ):
     """Test that non-production grants exactly secret + assume-role, no Athena."""
     grantee = _grantee(dev_stack)
-    grant_rapid_database_access(
-        grantee, dev_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, dev_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(dev_stack)
     policy = template.find_resources("AWS::IAM::Policy")
@@ -167,14 +165,14 @@ def test_grant_rapid_database_access_non_production_only_grants_two_statements(
     assert actions == {"secretsmanager:GetSecretValue", "sts:AssumeRole"}
 
 
-def test_grant_rapid_database_access_falls_back_to_rapid_constant_role_arn(
+def test_grant_rapid_database_falls_back_to_rapid_constant_role_arn(
     dev_stack, dev_deployment_config, athena_settings
 ):
     """Test the RAPID_CROSS_ACCOUNT_ROLE_ARN fallback when unset on the config."""
     dev_deployment_config.cross_account_role_arn = None
     grantee = _grantee(dev_stack)
-    grant_rapid_database_access(
-        grantee, dev_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, dev_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(dev_stack)
 
@@ -197,13 +195,13 @@ def test_grant_rapid_database_access_falls_back_to_rapid_constant_role_arn(
     )
 
 
-def test_grant_rapid_database_access_production_grants_athena_workgroup(
+def test_grant_rapid_database_production_grants_athena_workgroup(
     prod_stack, prod_deployment_config, athena_settings
 ):
     """Test that production grants direct Athena workgroup access."""
     grantee = _grantee(prod_stack)
-    grant_rapid_database_access(
-        grantee, prod_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, prod_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(prod_stack)
 
@@ -231,13 +229,13 @@ def test_grant_rapid_database_access_production_grants_athena_workgroup(
     )
 
 
-def test_grant_rapid_database_access_production_forces_rapid_region_for_glue(
+def test_grant_rapid_database_production_forces_rapid_region_for_glue(
     prod_stack, prod_deployment_config, athena_settings
 ):
     """Test that production forces RAPID_REGION for Glue, ignoring stack.region."""
     grantee = _grantee(prod_stack)
-    grant_rapid_database_access(
-        grantee, prod_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, prod_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(prod_stack)
 
@@ -265,13 +263,13 @@ def test_grant_rapid_database_access_production_forces_rapid_region_for_glue(
     )
 
 
-def test_grant_rapid_database_access_production_grants_data_bucket(
+def test_grant_rapid_database_production_grants_data_bucket(
     prod_stack, prod_deployment_config, athena_settings
 ):
     """Test that production grants access to rAPId's shared data bucket."""
     grantee = _grantee(prod_stack)
-    grant_rapid_database_access(
-        grantee, prod_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, prod_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(prod_stack)
 
@@ -296,13 +294,13 @@ def test_grant_rapid_database_access_production_grants_data_bucket(
     )
 
 
-def test_grant_rapid_database_access_production_grants_results_bucket_and_kms(
+def test_grant_rapid_database_production_grants_results_bucket_and_kms(
     prod_stack, prod_deployment_config, athena_settings
 ):
     """Test that production grants access to the Athena results bucket + KMS key."""
     grantee = _grantee(prod_stack)
-    grant_rapid_database_access(
-        grantee, prod_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, prod_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(prod_stack)
 
@@ -336,13 +334,13 @@ def test_grant_rapid_database_access_production_grants_results_bucket_and_kms(
     )
 
 
-def test_grant_rapid_database_access_production_does_not_assume_role(
+def test_grant_rapid_database_production_does_not_assume_role(
     prod_stack, prod_deployment_config, athena_settings
 ):
     """Test that production never grants sts:AssumeRole."""
     grantee = _grantee(prod_stack)
-    grant_rapid_database_access(
-        grantee, prod_deployment_config, athena_settings, "my-app/rapid"
+    grant_rapid_database(
+        grantee, prod_deployment_config, "my-app/rapid", athena_settings=athena_settings
     )
     template = Template.from_stack(prod_stack)
     policy = template.find_resources("AWS::IAM::Policy")
@@ -352,3 +350,30 @@ def test_grant_rapid_database_access_production_does_not_assume_role(
     actions = {s["Action"] for s in statements if isinstance(s["Action"], str)}
 
     assert "sts:AssumeRole" not in actions
+
+
+def test_grant_rapid_database_non_production_does_not_read_parameter_store(
+    dev_stack, dev_deployment_config
+):
+    """Test that non-production never builds AthenaSettings (no SSM read)."""
+    with patch(
+        "gds_idea_cdk_constructs.permissions.rapid.AthenaSettings"
+    ) as athena_settings_cls:
+        grant_rapid_database(_grantee(dev_stack), dev_deployment_config, "my-app/rapid")
+
+    athena_settings_cls.assert_not_called()
+
+
+def test_grant_rapid_database_production_builds_athena_settings_when_omitted(
+    prod_stack, prod_deployment_config, athena_settings
+):
+    """Test that production fetches AthenaSettings for its cdk_env if omitted."""
+    with patch(
+        "gds_idea_cdk_constructs.permissions.rapid.AthenaSettings",
+        return_value=athena_settings,
+    ) as athena_settings_cls:
+        grant_rapid_database(
+            _grantee(prod_stack), prod_deployment_config, "my-app/rapid"
+        )
+
+    athena_settings_cls.assert_called_once_with(prod_deployment_config.cdk_env)

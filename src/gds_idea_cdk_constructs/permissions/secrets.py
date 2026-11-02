@@ -4,7 +4,7 @@ import aws_cdk as cdk
 from aws_cdk import Stack, aws_iam as iam
 
 
-def grant_secret_access(
+def grant_secret_read(
     grantee: iam.IGrantable,
     stack: Stack,
     secret_name_prefix: str,

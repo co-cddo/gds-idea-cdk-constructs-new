@@ -5,7 +5,7 @@ from aws_cdk import App, Environment as CdkEnvironment, Stack, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.permissions.bedrock import (
-    grant_bedrock_invoke_model_access,
+    grant_bedrock_invoke_model,
 )
 
 
@@ -32,9 +32,9 @@ def grantee(test_stack):
     )
 
 
-def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee):
+def test_grant_bedrock_invoke_model_default_wildcard(test_stack, grantee):
     """Test that the default scope is all foundation models AND inference profiles."""
-    grant_bedrock_invoke_model_access(grantee, test_stack)
+    grant_bedrock_invoke_model(grantee, test_stack)
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -65,9 +65,9 @@ def test_grant_bedrock_invoke_model_access_default_wildcard(test_stack, grantee)
     )
 
 
-def test_grant_bedrock_invoke_model_access_scoped_model_ids(test_stack, grantee):
+def test_grant_bedrock_invoke_model_scoped_model_ids(test_stack, grantee):
     """Test that model_ids scopes the foundation-model resource ARNs."""
-    grant_bedrock_invoke_model_access(
+    grant_bedrock_invoke_model(
         grantee,
         test_stack,
         model_ids=[
@@ -102,11 +102,9 @@ def test_grant_bedrock_invoke_model_access_scoped_model_ids(test_stack, grantee)
     )
 
 
-def test_grant_bedrock_invoke_model_access_scoped_inference_profile_ids(
-    test_stack, grantee
-):
+def test_grant_bedrock_invoke_model_scoped_inference_profile_ids(test_stack, grantee):
     """Test that inference_profile_ids scopes the inference-profile resource ARNs."""
-    grant_bedrock_invoke_model_access(
+    grant_bedrock_invoke_model(
         grantee,
         test_stack,
         inference_profile_ids=["eu.anthropic.claude-haiku-4-5-20251001-v1:0"],
@@ -137,9 +135,9 @@ def test_grant_bedrock_invoke_model_access_scoped_inference_profile_ids(
     )
 
 
-def test_grant_bedrock_invoke_model_access_scoped_both(test_stack, grantee):
+def test_grant_bedrock_invoke_model_scoped_both(test_stack, grantee):
     """Test that both model_ids and inference_profile_ids can be scoped together."""
-    grant_bedrock_invoke_model_access(
+    grant_bedrock_invoke_model(
         grantee,
         test_stack,
         model_ids=["amazon.titan-text-express-v1"],
@@ -171,9 +169,9 @@ def test_grant_bedrock_invoke_model_access_scoped_both(test_stack, grantee):
     )
 
 
-def test_grant_bedrock_invoke_model_access_with_sid(test_stack, grantee):
+def test_grant_bedrock_invoke_model_with_sid(test_stack, grantee):
     """Test that a provided sid is included on the statement."""
-    grant_bedrock_invoke_model_access(grantee, test_stack, sid="MyBedrockSid")
+    grant_bedrock_invoke_model(grantee, test_stack, sid="MyBedrockSid")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -188,9 +186,9 @@ def test_grant_bedrock_invoke_model_access_with_sid(test_stack, grantee):
     )
 
 
-def test_grant_bedrock_invoke_model_access_omits_sid_by_default(test_stack, grantee):
+def test_grant_bedrock_invoke_model_omits_sid_by_default(test_stack, grantee):
     """Test that no Sid is set when not provided."""
-    grant_bedrock_invoke_model_access(grantee, test_stack)
+    grant_bedrock_invoke_model(grantee, test_stack)
     template = Template.from_stack(test_stack)
     policy = template.find_resources("AWS::IAM::Policy")
     statement = next(iter(policy.values()))["Properties"]["PolicyDocument"][

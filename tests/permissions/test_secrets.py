@@ -4,7 +4,7 @@ import pytest
 from aws_cdk import App, Environment as CdkEnvironment, Stack, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
-from gds_idea_cdk_constructs.permissions.secrets import grant_secret_access
+from gds_idea_cdk_constructs.permissions.secrets import grant_secret_read
 
 
 @pytest.fixture
@@ -30,9 +30,9 @@ def grantee(test_stack):
     )
 
 
-def test_grant_secret_access_default(test_stack, grantee):
+def test_grant_secret_read_default(test_stack, grantee):
     """Test the default secret access statement uses a wildcard suffix."""
-    grant_secret_access(grantee, test_stack, "my-app/access")
+    grant_secret_read(grantee, test_stack, "my-app/access")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -57,9 +57,9 @@ def test_grant_secret_access_default(test_stack, grantee):
     )
 
 
-def test_grant_secret_access_resource_includes_prefix(test_stack, grantee):
+def test_grant_secret_read_resource_includes_prefix(test_stack, grantee):
     """Test that the resolved ARN includes the secret name prefix."""
-    grant_secret_access(grantee, test_stack, "my-app/access")
+    grant_secret_read(grantee, test_stack, "my-app/access")
     template = Template.from_stack(test_stack)
     policy = template.find_resources("AWS::IAM::Policy")
     statement = next(iter(policy.values()))["Properties"]["PolicyDocument"][
@@ -73,9 +73,9 @@ def test_grant_secret_access_resource_includes_prefix(test_stack, grantee):
     )
 
 
-def test_grant_secret_access_with_sid(test_stack, grantee):
+def test_grant_secret_read_with_sid(test_stack, grantee):
     """Test that a provided sid is included on the statement."""
-    grant_secret_access(grantee, test_stack, "my-app/access", sid="MySecretSid")
+    grant_secret_read(grantee, test_stack, "my-app/access", sid="MySecretSid")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -90,9 +90,9 @@ def test_grant_secret_access_with_sid(test_stack, grantee):
     )
 
 
-def test_grant_secret_access_omits_sid_by_default(test_stack, grantee):
+def test_grant_secret_read_omits_sid_by_default(test_stack, grantee):
     """Test that no Sid is set when not provided."""
-    grant_secret_access(grantee, test_stack, "my-app/access")
+    grant_secret_read(grantee, test_stack, "my-app/access")
     template = Template.from_stack(test_stack)
     policy = template.find_resources("AWS::IAM::Policy")
     statement = next(iter(policy.values()))["Properties"]["PolicyDocument"][
@@ -102,10 +102,10 @@ def test_grant_secret_access_omits_sid_by_default(test_stack, grantee):
     assert "Sid" not in statement
 
 
-def test_grant_secret_access_callable_multiple_times_without_clash(test_stack, grantee):
+def test_grant_secret_read_callable_multiple_times_without_clash(test_stack, grantee):
     """Test that calling twice on the same role does not clash (no fixed Sid)."""
-    grant_secret_access(grantee, test_stack, "my-app/access")
-    grant_secret_access(grantee, test_stack, "other-app/access")
+    grant_secret_read(grantee, test_stack, "my-app/access")
+    grant_secret_read(grantee, test_stack, "other-app/access")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(

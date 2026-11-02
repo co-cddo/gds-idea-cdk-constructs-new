@@ -2,16 +2,19 @@
 
 from aws_cdk import aws_iam as iam
 
-from ..config import DeploymentConfig, DeploymentEnvironment
-from .athena import (
-    grant_athena_results_access,
-    grant_athena_workgroup_access,
-    grant_glue_catalog_access,
-    grant_s3_bucket_access,
+from ..config import (
+    RAPID_CROSS_ACCOUNT_ROLE_ARN,
+    DeploymentConfig,
+    DeploymentEnvironment,
 )
+from .athena import (
+    grant_athena_results,
+    grant_athena_workgroup,
+    grant_glue_catalog,
+)
+from .s3 import grant_s3_read
 from .settings import (
     DEFAULT_REGION,
-    RAPID_CROSS_ACCOUNT_ROLE_ARN,
     RAPID_DATA_BUCKET_NAME,
     RAPID_GLUE_DATABASE,
     RAPID_REGION,
@@ -19,11 +22,12 @@ from .settings import (
 )
 
 
-def grant_rapid_database_access(
+def grant_rapid_database(
     grantee: iam.IGrantable,
     deployment_config: DeploymentConfig,
-    athena_settings: AthenaSettings,
     secret_name: str,
+    *,
+    athena_settings: AthenaSettings | None = None,
 ) -> None:
     """Grant access to query rAPId's shared Athena-backed database.
 
@@ -42,10 +46,13 @@ def grant_rapid_database_access(
         deployment_config: The current environment's deployment config.
             Used for `.environment`, `.cdk_env.region` (to derive the
             secret ARN's account/region), and `.cross_account_role_arn`.
-        athena_settings: Resolved Athena settings for the results bucket
-            + KMS key (see `AthenaSettings`). Only used in production.
         secret_name: Name, or name prefix, of the secret holding rAPId
             credentials.
+        athena_settings: Optional resolved Athena settings for the results
+            bucket + KMS key (see `AthenaSettings`). Only used in
+            production, where it defaults to
+            `AthenaSettings(deployment_config.cdk_env)` (which reads
+            Parameter Store). Never read in other environments.
     """
     account = deployment_config.environment.value
     region = deployment_config.cdk_env.region or DEFAULT_REGION
@@ -59,12 +66,13 @@ def grant_rapid_database_access(
     )
 
     if deployment_config.environment == DeploymentEnvironment.PRODUCTION:
-        grant_athena_workgroup_access(grantee, athena_settings, region=RAPID_REGION)
-        grant_glue_catalog_access(
+        athena_settings = athena_settings or AthenaSettings(deployment_config.cdk_env)
+        grant_athena_workgroup(grantee, athena_settings, region=RAPID_REGION)
+        grant_glue_catalog(
             grantee, athena_settings, RAPID_GLUE_DATABASE, region=RAPID_REGION
         )
-        grant_s3_bucket_access(grantee, RAPID_DATA_BUCKET_NAME)
-        grant_athena_results_access(grantee, athena_settings)
+        grant_s3_read(grantee, RAPID_DATA_BUCKET_NAME)
+        grant_athena_results(grantee, athena_settings)
     else:
         role_arn = (
             deployment_config.cross_account_role_arn or RAPID_CROSS_ACCOUNT_ROLE_ARN

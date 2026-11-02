@@ -10,7 +10,7 @@ _INVOKE_MODEL_ACTIONS = [
 ]
 
 
-def grant_bedrock_invoke_model_access(
+def grant_bedrock_invoke_model(
     grantee: iam.IGrantable,
     stack: Stack,
     *,
@@ -23,8 +23,8 @@ def grant_bedrock_invoke_model_access(
     Args:
         grantee: The IAM principal to grant permissions to (e.g. a Role,
             Lambda Function, EC2 Instance, ECS Service, etc.).
-        stack: The stack used to resolve the account for the inference-profile
-        ARNs.
+        stack: The stack used to resolve the region and account for the
+            inference-profile ARNs.
         model_ids: Optional list of foundation model IDs to scope access to,
             e.g. ["anthropic.claude-3-5-sonnet-20241022-v2:0"]. Defaults to
             all foundation models ("*") for early testing before devs can

@@ -5,7 +5,9 @@ from aws_cdk import App, Environment as CdkEnvironment, Stack, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.permissions.dynamodb import (
-    grant_dynamodb_table_access,
+    grant_dynamodb_read_data,
+    grant_dynamodb_read_write_data,
+    grant_dynamodb_write_data,
 )
 
 
@@ -32,9 +34,9 @@ def grantee(test_stack):
     )
 
 
-def test_grant_dynamodb_table_access_read_only_default(test_stack, grantee):
+def test_grant_dynamodb_read_data_default(test_stack, grantee):
     """Test the default read-only statement, including index ARN."""
-    grant_dynamodb_table_access(grantee, test_stack, "my-table")
+    grant_dynamodb_read_data(grantee, test_stack, "my-table")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -67,9 +69,9 @@ def test_grant_dynamodb_table_access_read_only_default(test_stack, grantee):
     )
 
 
-def test_grant_dynamodb_table_access_write(test_stack, grantee):
-    """Test that write=True adds the write actions."""
-    grant_dynamodb_table_access(grantee, test_stack, "my-table", write=True)
+def test_grant_dynamodb_write_data(test_stack, grantee):
+    """Test that grant_dynamodb_write_data grants only the write actions."""
+    grant_dynamodb_write_data(grantee, test_stack, "my-table")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -80,14 +82,12 @@ def test_grant_dynamodb_table_access_write(test_stack, grantee):
                     [
                         Match.object_like(
                             {
-                                "Action": Match.array_with(
-                                    [
-                                        "dynamodb:PutItem",
-                                        "dynamodb:UpdateItem",
-                                        "dynamodb:DeleteItem",
-                                        "dynamodb:BatchWriteItem",
-                                    ]
-                                ),
+                                "Action": [
+                                    "dynamodb:PutItem",
+                                    "dynamodb:UpdateItem",
+                                    "dynamodb:DeleteItem",
+                                    "dynamodb:BatchWriteItem",
+                                ],
                             }
                         )
                     ]
@@ -97,9 +97,9 @@ def test_grant_dynamodb_table_access_write(test_stack, grantee):
     )
 
 
-def test_grant_dynamodb_table_access_exclude_indexes(test_stack, grantee):
+def test_grant_dynamodb_read_data_exclude_indexes(test_stack, grantee):
     """Test that include_indexes=False omits the index ARN."""
-    grant_dynamodb_table_access(grantee, test_stack, "my-table", include_indexes=False)
+    grant_dynamodb_read_data(grantee, test_stack, "my-table", include_indexes=False)
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -123,9 +123,9 @@ def test_grant_dynamodb_table_access_exclude_indexes(test_stack, grantee):
     )
 
 
-def test_grant_dynamodb_table_access_with_sid(test_stack, grantee):
+def test_grant_dynamodb_read_data_with_sid(test_stack, grantee):
     """Test that a provided sid is included on the statement."""
-    grant_dynamodb_table_access(grantee, test_stack, "my-table", sid="MyTableSid")
+    grant_dynamodb_read_data(grantee, test_stack, "my-table", sid="MyTableSid")
     template = Template.from_stack(test_stack)
 
     template.has_resource_properties(
@@ -140,9 +140,9 @@ def test_grant_dynamodb_table_access_with_sid(test_stack, grantee):
     )
 
 
-def test_grant_dynamodb_table_access_omits_sid_by_default(test_stack, grantee):
+def test_grant_dynamodb_read_data_omits_sid_by_default(test_stack, grantee):
     """Test that no Sid is set when not provided."""
-    grant_dynamodb_table_access(grantee, test_stack, "my-table")
+    grant_dynamodb_read_data(grantee, test_stack, "my-table")
     template = Template.from_stack(test_stack)
     policy = template.find_resources("AWS::IAM::Policy")
     statement = next(iter(policy.values()))["Properties"]["PolicyDocument"][
@@ -150,3 +150,30 @@ def test_grant_dynamodb_table_access_omits_sid_by_default(test_stack, grantee):
     ][0]
 
     assert "Sid" not in statement
+
+
+def test_grant_dynamodb_read_data_excludes_write_actions(test_stack, grantee):
+    """Test that grant_dynamodb_read_data does not grant any write action."""
+    grant_dynamodb_read_data(grantee, test_stack, "my-table")
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    [statement] = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+
+    assert "dynamodb:PutItem" not in statement["Action"]
+
+
+def test_grant_dynamodb_read_write_data_combines_actions(test_stack, grantee):
+    """Test that grant_dynamodb_read_write_data grants read and write actions."""
+    grant_dynamodb_read_write_data(grantee, test_stack, "my-table")
+    template = Template.from_stack(test_stack)
+    policy = template.find_resources("AWS::IAM::Policy")
+    [statement] = next(iter(policy.values()))["Properties"]["PolicyDocument"][
+        "Statement"
+    ]
+
+    assert {"dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem"} <= set(
+        statement["Action"]
+    )
+    assert len(statement["Action"]) == 9
