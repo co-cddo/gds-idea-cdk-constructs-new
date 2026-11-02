@@ -1,12 +1,13 @@
 """Shared settings for IAM permission helpers.
 
-`AthenaSettings` fetches the per-environment Athena query results bucket
-and KMS key from AWS Systems Manager Parameter Store (mirroring the fetch
-pattern used by `DeploymentConfig` Keeps it separate since these are
-IAM/permissions-specific settings rather than webapp deployment settings)
-and might not always want a webapp.
+`AthenaSettings` fetches the Athena query results bucket and KMS key from
+AWS Systems Manager Parameter Store, using the same pattern as
+`DeploymentConfig`. It is kept separate because these are permissions
+settings, and might not always need a webapp.
 Other values are static.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -26,18 +27,25 @@ ATHENA_WORKGROUP_NAME = "primary"  # same name in both dev and prod accounts cur
 
 
 class AthenaSettings:
-    """Environment-specific Athena settings, fetched from Parameter Store.
+    """Account-specific Athena settings, fetched from Parameter Store.
 
     Fetches a single SSM parameter (``/gds-idea-athena``) containing a JSON
-    blob keyed by account ID each with ``results_bucket_name`` and
-    ``kms_key_arn``.
+    object with ``results_bucket_name`` and ``kms_key_arn``. Each account
+    holds its own values, same as `DeploymentConfig` parameters.
 
     For testing, local development without Parameter Store access,
     or to point at a different KMS key/bucket, use the `from_dict`
     classmethod instead.
+
+    Attributes:
+        account: The AWS account ID these settings apply to.
+        region: The AWS region these settings apply to.
+        results_bucket_name: Name of the Athena query results bucket.
+        kms_key_arn: ARN of the KMS key encrypting the results bucket.
     """
 
     PARAM_NAME = "/gds-idea-athena"
+    REQUIRED_KEYS = frozenset({"results_bucket_name", "kms_key_arn"})
 
     def __init__(self, cdk_env: CdkEnvironment):
         """Create AthenaSettings by fetching from Parameter Store.
@@ -47,7 +55,7 @@ class AthenaSettings:
 
         Raises:
             ValueError: If the account is unknown, the environment is
-                TESTING, or the parameter is missing the current account.
+                TESTING, or the parameter is missing required keys.
         """
         environment = DeploymentEnvironment.from_cdk_env(cdk_env)
         if environment == DeploymentEnvironment.TESTING:
@@ -57,70 +65,61 @@ class AthenaSettings:
             )
         region = cdk_env.region or DEFAULT_REGION
         config = self._fetch_from_parameter_store(region)
-        self._apply_config(environment, config, region)
+        self._apply_config(cdk_env, config)
 
     @classmethod
     def from_dict(
-        cls,
-        environment: DeploymentEnvironment,
-        config: dict[str, dict[str, str]],
-        region: str = DEFAULT_REGION,
-    ) -> "AthenaSettings":
+        cls, cdk_env: CdkEnvironment, config: dict[str, str]
+    ) -> AthenaSettings:
         """Create AthenaSettings from an explicit config dict.
 
         Useful for testing or local development without Parameter Store
         access.
 
         Args:
-            environment: The environment to select settings for.
-            config: Dict keyed by account ID, matching the shape stored in
-                Parameter Store.
-            region: AWS region these settings apply to.
+            cdk_env: The CDK Environment (must have account set). The
+                region defaults to `DEFAULT_REGION` if unset.
+            config: Dict containing `results_bucket_name` and `kms_key_arn`.
 
         Returns:
             A configured AthenaSettings instance.
-        """
-        instance = object.__new__(cls)
-        instance._apply_config(environment, config, region)
-        return instance
-
-    def _apply_config(
-        self,
-        environment: DeploymentEnvironment,
-        config: dict[str, dict[str, str]],
-        region: str,
-    ) -> None:
-        """Select this environment's settings and set attributes.
-
-        Args:
-            environment: The environment to select settings for.
-            config: Dict keyed by account ID.
-            region: AWS region these settings apply to.
 
         Raises:
-            ValueError: If there is no config for this environment's account.
+            ValueError: If config is missing required keys.
         """
-        try:
-            env_config = config[environment.value]
-        except KeyError as e:
+        instance = object.__new__(cls)
+        instance._apply_config(cdk_env, config)
+        return instance
+
+    def _apply_config(self, cdk_env: CdkEnvironment, config: dict[str, str]) -> None:
+        """Validate the config and set attributes.
+
+        Args:
+            cdk_env: The CDK Environment these settings apply to.
+            config: Dict containing the required keys.
+
+        Raises:
+            ValueError: If required keys are missing.
+        """
+        missing = self.REQUIRED_KEYS - config.keys()
+        if missing:
             raise ValueError(
-                f"No Athena settings found for environment {environment} "
-                f"(account {environment.value})"
-            ) from e
+                f"Athena config missing required keys: {', '.join(sorted(missing))}"
+            )
 
-        self.account = environment.value
-        self.region = region
-        self.results_bucket_name = env_config["results_bucket_name"]
-        self.kms_key_arn = env_config["kms_key_arn"]
+        self.account = cdk_env.account
+        self.region = cdk_env.region or DEFAULT_REGION
+        self.results_bucket_name = config["results_bucket_name"]
+        self.kms_key_arn = config["kms_key_arn"]
 
-    def _fetch_from_parameter_store(self, region: str) -> dict[str, dict[str, str]]:
+    def _fetch_from_parameter_store(self, region: str) -> dict[str, str]:
         """Fetch and parse the Athena settings parameter.
 
         Args:
             region: AWS region to create the SSM client in.
 
         Returns:
-            Parsed JSON dict keyed by account ID.
+            Parsed JSON dict with the Athena settings.
 
         Raises:
             botocore.exceptions.ClientError: If the parameter cannot be
@@ -136,7 +135,3 @@ class AthenaSettings:
 RAPID_REGION = DEFAULT_REGION
 RAPID_DATA_BUCKET_NAME = "rapid-cddo"
 RAPID_GLUE_DATABASE = "rapid-cddo_catalogue_db"
-RAPID_CROSS_ACCOUNT_ROLE_ARN = (
-    f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
-    ":role/assume_role_for_development_account"
-)

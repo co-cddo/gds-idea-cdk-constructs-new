@@ -55,6 +55,14 @@ class DeploymentEnvironment(Enum):
         ]
 
 
+# Role in the production account that non-production environments assume to
+# reach rAPId and other production data.
+RAPID_CROSS_ACCOUNT_ROLE_ARN = (
+    f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
+    ":role/assume_role_for_development_account"
+)
+
+
 @dataclass
 class DeploymentConfig:
     """Configuration for GDS Idea web applications.
@@ -179,10 +187,7 @@ class DeploymentConfig:
         if self.environment == DeploymentEnvironment.PRODUCTION:
             self.cross_account_role_arn: str | None = None
         else:
-            self.cross_account_role_arn = (
-                f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}"
-                ":role/assume_role_for_development_account"
-            )
+            self.cross_account_role_arn = RAPID_CROSS_ACCOUNT_ROLE_ARN
 
     def _fetch_from_parameter_store(self) -> dict[str, str]:
         """Fetch configuration from AWS Systems Manager Parameter Store.
@@ -253,7 +258,7 @@ class StackId:
     @classmethod
     def from_config(
         cls, app_config: AppConfig, deployment_config: DeploymentConfig
-    ) -> "StackId":
+    ) -> StackId:
         """Build a StackId from an AppConfig and DeploymentConfig.
 
         Args:
