@@ -24,6 +24,7 @@ def _load_template_module(name: str):
 
 _config = _load_template_module("_config")
 _gateway = _load_template_module("_gateway")
+_streaming = _load_template_module("_streaming")
 
 
 @pytest.fixture
@@ -117,6 +118,35 @@ def test_missing_targets_finds_a_hyphenated_target():
 def test_missing_targets_ignores_tools_with_no_target_prefix():
     """Local tools and the gateway's search tool have no ``target___`` prefix."""
     assert _gateway.missing_targets(("wfc",), ["retrieve"]) == ["wfc"]
+
+
+# -- Reasoning stream tests --
+
+
+def test_reasoning_chunk_as_strands_streams_it():
+    event = {"delta": {"reasoningContent": {"text": "Checking the table"}}}
+    assert _streaming._handle_reasoning(event) == {
+        "type": "thinking",
+        "data": "Checking the table",
+    }
+
+
+def test_reasoning_chunk_in_the_complete_message_shape():
+    event = {"delta": {"reasoningContent": {"reasoningText": {"text": "Step one"}}}}
+    assert _streaming._handle_reasoning(event) == {
+        "type": "thinking",
+        "data": "Step one",
+    }
+
+
+@pytest.mark.parametrize(
+    "reasoning",
+    [{"signature": "abc"}, {"redactedContent": b"x"}, {"text": ""}, {}],
+)
+def test_reasoning_delta_without_text_gives_nothing(reasoning):
+    assert (
+        _streaming._handle_reasoning({"delta": {"reasoningContent": reasoning}}) is None
+    )
 
 
 # -- Thinking tests --
