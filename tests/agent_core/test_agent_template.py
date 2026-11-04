@@ -76,6 +76,42 @@ def test_config_uses_the_default_prompt_when_none_is_set(base_env):
     assert "helpful AI assistant" in _config.Config.from_env().system_prompt
 
 
+# -- Missing target tests --
+
+
+def test_missing_targets_empty_when_every_target_has_tools():
+    tools = ["wfc___read_sql", "wfc___run_sql", "gats_kb___retrieve"]
+    assert _gateway.missing_targets(("wfc", "gats_kb"), tools) == []
+
+
+def test_missing_targets_lists_targets_without_tools_in_order():
+    tools = ["wfc___read_sql"]
+    assert _gateway.missing_targets(("wcf", "wfc", "dpd"), tools) == ["wcf", "dpd"]
+
+
+def test_missing_targets_empty_when_nothing_is_pinned():
+    assert _gateway.missing_targets(None, []) == []
+
+
+def test_missing_targets_reports_every_target_when_no_tools_loaded():
+    assert _gateway.missing_targets(("wfc",), []) == ["wfc"]
+
+
+def test_missing_targets_does_not_match_a_longer_target_name():
+    """Target 'wfc' must not be satisfied by a tool of target 'wfc_extra'."""
+    assert _gateway.missing_targets(("wfc",), ["wfc_extra___run_sql"]) == ["wfc"]
+
+
+def test_missing_targets_finds_a_hyphenated_target():
+    tools = ["gats-assurance___read_sql", "gats-assurance___run_sql"]
+    assert _gateway.missing_targets(("gats-assurance",), tools) == []
+
+
+def test_missing_targets_ignores_tools_with_no_target_prefix():
+    """Local tools and the gateway's search tool have no ``target___`` prefix."""
+    assert _gateway.missing_targets(("wfc",), ["retrieve"]) == ["wfc"]
+
+
 # -- Tool filter tests --
 
 

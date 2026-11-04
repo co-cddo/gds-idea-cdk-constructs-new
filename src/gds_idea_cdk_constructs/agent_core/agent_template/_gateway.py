@@ -30,6 +30,28 @@ def build_tool_filters(targets: tuple[str, ...] | None) -> dict[str, Any] | None
     }
 
 
+def missing_targets(
+    targets: tuple[str, ...] | None, tool_names: list[str]
+) -> list[str]:
+    """Find pinned targets that have no tools among ``tool_names``.
+
+    Args:
+        targets: Target names the agent is pinned to, or ``None`` for no pin.
+        tool_names: Names of the tools the agent has loaded.
+
+    Returns:
+        The pinned targets with no tool named ``{target}___{tool}``, in order.
+    """
+    if targets is None:
+        return []
+    loaded = {
+        name.split(TOOL_NAME_DELIMITER, 1)[0]
+        for name in tool_names
+        if TOOL_NAME_DELIMITER in name
+    }
+    return [target for target in targets if target not in loaded]
+
+
 # Strands does not raise when a gateway connection drops mid-turn. It hands the
 # model a tool result whose text starts with one of these, so look for them.
 _CALL_FAILED_PREFIXES = (

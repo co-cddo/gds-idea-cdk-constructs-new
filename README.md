@@ -186,7 +186,7 @@ What the construct does for you:
 - Reads the gateway URL and ARN from `/gds-idea/gateways/{name}/url` and `/arn` at deploy time.
 - Lets the runtime role call the gateway (`bedrock-agentcore:InvokeGateway`, on the exact gateway ARN).
 - Passes `GATEWAY_URLS` (and `GATEWAY_TARGETS`, when you pin targets) to the agent.
-- Checks your targets exist at synth time, so a typo fails the build instead of leaving the agent without tools.
+- Checks your targets when the agent starts, so a typo fails the turn and names the missing target, instead of leaving the agent without tools.
 
 #### Two separate controls
 
@@ -197,10 +197,7 @@ What the construct does for you:
 
 #### Things to know
 
-- **Pinned targets need a real `env=`.** The check reads the gateway's tool list at synth time, which needs a concrete account and region. With no `targets`, no lookup happens.
-- **The tool list is read from `/gds-idea/gateways/{name}/tools`.** This is an SSM `StringList` (comma-separated `{target}___{tool}` names); a JSON list of strings is also accepted.
-- **The tool list is cached** in `cdk.context.json`. If you add a target that was created after the cache was written, synth fails and prints the exact `cdk context --reset '...'` command to run.
-- **The first synth skips the check.** The CDK returns a placeholder until it has fetched the value, then synthesises again. A typo is caught on that second pass.
+- **Targets are checked by the agent, not at synth.** When the agent is built, it checks that every pinned target has at least one tool. If one has none (a typo, or a target renamed on the gateway), the turn fails with an error naming it, and the next turn tries again. Synth does not read the gateway's tool list, so it needs no AWS access and no `cdk.context.json` entry.
 - **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
 - **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
 - **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `gats_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
@@ -263,8 +260,6 @@ unset AWS_PROFILE
 
 cdk deploy --app "uv run python gateway_test_app.py"
 ```
-
-The first synth writes the gateway's tool list to `cdk.context.json` in the directory you run from. Do not commit it.
 
 Ask questions from the CLI, using the `RuntimeArn` stack output. Use the same ID for `--runtime-session-id` and the payload `session_id`, and reuse it to stay in one conversation:
 
