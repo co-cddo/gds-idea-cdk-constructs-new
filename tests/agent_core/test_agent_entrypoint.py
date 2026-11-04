@@ -169,7 +169,7 @@ def load_template(monkeypatch, signed_transports):
     monkeypatch.setenv("REGION", "eu-west-2")
     monkeypatch.setenv("MODEL_ID", "test-model")
     monkeypatch.setenv("MEMORY_ID", "test-memory")
-    monkeypatch.setenv("SYSTEM_PROMPT", "Today is {today}.")
+    monkeypatch.setenv("SYSTEM_PROMPT", json.dumps("Today is {today}."))
     for name in ("KB_ID", "GATEWAY_URLS", "GATEWAY_TARGETS"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.syspath_prepend(str(DEFAULT_AGENT_CODE_DIR))

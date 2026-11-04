@@ -65,6 +65,17 @@ def test_config_parses_gateway_targets(base_env):
     assert _config.Config.from_env().gateway_targets == ("wfc", "dpd")
 
 
+def test_config_decodes_the_json_encoded_system_prompt(base_env):
+    prompt = "Line one.\n- a bullet\n\tindented"
+    base_env.setenv("SYSTEM_PROMPT", json.dumps(prompt))
+    assert _config.Config.from_env().system_prompt == prompt
+
+
+def test_config_uses_the_default_prompt_when_none_is_set(base_env):
+    base_env.delenv("SYSTEM_PROMPT", raising=False)
+    assert "helpful AI assistant" in _config.Config.from_env().system_prompt
+
+
 # -- Tool filter tests --
 
 

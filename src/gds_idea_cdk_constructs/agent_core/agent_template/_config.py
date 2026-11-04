@@ -23,9 +23,15 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         prompt_file = Path(__file__).parent / "default_system_prompt.md"
-        system_prompt = os.getenv("SYSTEM_PROMPT") or (
-            prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
-        )
+        # SYSTEM_PROMPT is JSON-encoded by the CDK stack, because AgentCore
+        # rejects newlines and other control characters in env var values.
+        encoded_prompt = os.getenv("SYSTEM_PROMPT")
+        if encoded_prompt:
+            system_prompt = json.loads(encoded_prompt)
+        elif prompt_file.exists():
+            system_prompt = prompt_file.read_text(encoding="utf-8")
+        else:
+            system_prompt = ""
         # GATEWAY_TARGETS is only set when the CDK config pins targets.
         # Absent means "keep every tool on the gateway".
         gateway_targets = os.getenv("GATEWAY_TARGETS")

@@ -1,5 +1,7 @@
 """CDK stack tests for AgentCore construct."""
 
+import json
+
 import pytest
 from aws_cdk import App, Environment as CdkEnvironment
 from aws_cdk.assertions import Match, Template
@@ -204,11 +206,33 @@ def test_builtin_custom_model_env_vars(builtin_custom_model):
                     "BUDGET_TOKENS": "2000",
                     "THINKING_ENABLED": "false",
                     "LOG_LEVEL": "DEBUG",
-                    "SYSTEM_PROMPT": "You are a test agent.",
+                    "SYSTEM_PROMPT": json.dumps("You are a test agent."),
                 }
             ),
         },
     )
+
+
+def test_multiline_system_prompt_has_no_control_characters():
+    """AgentCore rejects control characters (0x00-0x1F, 0x7F) in env var values."""
+    prompt = "Line one.\n- a bullet\n\tindented\r\nLine four."
+    stack = AgentCore(
+        App(),
+        "MultilinePromptStack",
+        props=AgentCoreProperties(
+            runtime_name="multiline_agent",
+            agent=BuiltInAgent(system_prompt=prompt),
+        ),
+        env=CdkEnvironment(account="123456789012", region="eu-west-2"),
+    )
+
+    resources = Template.from_stack(stack).to_json()["Resources"].values()
+    runtime = next(
+        r for r in resources if r["Type"] == "AWS::BedrockAgentCore::Runtime"
+    )
+    value = runtime["Properties"]["EnvironmentVariables"]["SYSTEM_PROMPT"]
+    assert not any(ord(c) < 0x20 or ord(c) == 0x7F for c in value)
+    assert json.loads(value) == prompt
 
 
 def test_no_system_prompt_env_var_when_empty(builtin_default):

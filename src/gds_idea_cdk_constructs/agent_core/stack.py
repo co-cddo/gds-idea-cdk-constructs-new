@@ -103,8 +103,10 @@ class AgentCore(Stack):
                 **props.agent.model.to_envs(),
                 "REGION": self.region,
                 "LOG_LEVEL": props.agent.log_level,
+                # JSON-encoded: AgentCore rejects control characters, such as
+                # newlines, in environment variable values.
                 **(
-                    {"SYSTEM_PROMPT": props.agent.system_prompt}
+                    {"SYSTEM_PROMPT": json.dumps(props.agent.system_prompt)}
                     if props.agent.system_prompt
                     else {}
                 ),
