@@ -357,8 +357,10 @@ Requests must be signed with SigV4 for the `bedrock-agentcore` service. The buil
 |---|---|---|---|
 | `model_id` | `str` | `"eu.anthropic.claude-sonnet-4-6"` | Bedrock model ID |
 | `max_tokens` | `int` | `8000` | Max output tokens (thinking + reply) |
-| `budget_tokens` | `int` | `4000` | Thinking budget (must be < max_tokens) |
+| `budget_tokens` | `int` | `4000` | Thinking budget for `"enabled"` (must be < max_tokens) |
 | `thinking_enabled` | `bool` | `True` | Enable extended thinking |
+| `thinking_type` | `str` | `"enabled"` | `"enabled"` thinks with a fixed `budget_tokens`; `"adaptive"` lets the model decide, guided by `effort`. Newer models (such as Claude Sonnet 5.5) reject `"enabled"`. |
+| `effort` | `str` | `"medium"` | For `"adaptive"` only: `"low"`, `"medium"`, `"high"`, `"xhigh"` or `"max"` |
 | `max_history` | `int` | `20` | Saved messages loaded from Memory when a conversation's agent is built |
 
 #### `CustomAgent`

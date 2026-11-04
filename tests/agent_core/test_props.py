@@ -21,6 +21,8 @@ def test_model_config_defaults():
     assert config.budget_tokens == 4000
     assert config.thinking_enabled is True
     assert config.max_history == 20
+    assert config.thinking_type == "enabled"
+    assert config.effort == "medium"
 
 
 def test_model_config_custom_values():
@@ -62,6 +64,8 @@ def test_model_config_to_envs():
         "MAX_TOKENS": "8000",
         "BUDGET_TOKENS": "4000",
         "THINKING_ENABLED": "true",
+        "THINKING_TYPE": "enabled",
+        "EFFORT": "medium",
         "MAX_HISTORY": "20",
     }
 
@@ -70,6 +74,34 @@ def test_model_config_to_envs_thinking_disabled():
     config = ModelConfig(thinking_enabled=False)
     envs = config.to_envs()
     assert envs["THINKING_ENABLED"] == "false"
+
+
+def test_model_config_to_envs_adaptive_thinking():
+    config = ModelConfig(thinking_type="adaptive", effort="high")
+    envs = config.to_envs()
+    assert envs["THINKING_TYPE"] == "adaptive"
+    assert envs["EFFORT"] == "high"
+
+
+def test_model_config_adaptive_thinking_needs_no_token_budget():
+    """Adaptive thinking ignores budget_tokens, so it need not be below max_tokens."""
+    config = ModelConfig(thinking_type="adaptive", max_tokens=4000, budget_tokens=4000)
+    assert config.thinking_type == "adaptive"
+
+
+def test_model_config_unknown_thinking_type_raises():
+    with pytest.raises(ValueError, match="thinking_type must be one of"):
+        ModelConfig(thinking_type="always")
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_model_config_accepts_every_effort_level(effort):
+    assert ModelConfig(thinking_type="adaptive", effort=effort).effort == effort
+
+
+def test_model_config_unknown_effort_raises():
+    with pytest.raises(ValueError, match="effort must be one of"):
+        ModelConfig(thinking_type="adaptive", effort="extreme")
 
 
 # -- MemoryConfig tests --

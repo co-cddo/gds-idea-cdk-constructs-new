@@ -185,6 +185,8 @@ def test_builtin_default_env_vars(builtin_default):
                     "MAX_TOKENS": "8000",
                     "BUDGET_TOKENS": "4000",
                     "THINKING_ENABLED": "true",
+                    "THINKING_TYPE": "enabled",
+                    "EFFORT": "medium",
                     "MAX_HISTORY": "20",
                     "REGION": "eu-west-2",
                     "LOG_LEVEL": "INFO",
@@ -254,6 +256,38 @@ def test_multiline_system_prompt_has_no_control_characters():
     assert json.loads(value) == prompt
 
 
+def test_adaptive_thinking_env_vars():
+    """Adaptive thinking reaches the agent as THINKING_TYPE and EFFORT."""
+    stack = AgentCore(
+        App(),
+        "AdaptiveStack",
+        props=AgentCoreProperties(
+            runtime_name="adaptive_agent",
+            agent=BuiltInAgent(
+                model=ModelConfig(
+                    model_id="eu.anthropic.claude-sonnet-5-5",
+                    thinking_type="adaptive",
+                    effort="high",
+                )
+            ),
+        ),
+        env=CdkEnvironment(account="123456789012", region="eu-west-2"),
+    )
+    Template.from_stack(stack).has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {
+            "EnvironmentVariables": Match.object_like(
+                {
+                    "MODEL_ID": "eu.anthropic.claude-sonnet-5-5",
+                    "THINKING_ENABLED": "true",
+                    "THINKING_TYPE": "adaptive",
+                    "EFFORT": "high",
+                }
+            ),
+        },
+    )
+
+
 def test_no_system_prompt_env_var_when_empty(builtin_default):
     """When system_prompt is empty, SYSTEM_PROMPT env var should not be set."""
     template = Template.from_stack(builtin_default)
@@ -311,6 +345,8 @@ def test_custom_agent_does_not_inject_builtin_specific_vars(custom_agent_no_memo
             assert "MAX_TOKENS" not in env_vars
             assert "BUDGET_TOKENS" not in env_vars
             assert "THINKING_ENABLED" not in env_vars
+            assert "THINKING_TYPE" not in env_vars
+            assert "EFFORT" not in env_vars
             assert "LOG_LEVEL" not in env_vars
 
 

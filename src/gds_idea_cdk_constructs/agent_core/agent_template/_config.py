@@ -19,6 +19,26 @@ class Config:
     gateway_urls: tuple[str, ...] = ()
     gateway_targets: tuple[str, ...] | None = None
     actor_id: str = "agent"
+    thinking_type: str = "enabled"
+    effort: str = "medium"
+
+    def thinking_request_fields(self) -> dict:
+        """Build the model request fields that turn thinking on.
+
+        Returns:
+            Fields for ``additional_request_fields``, or ``{}`` when thinking is
+            off. ``"enabled"`` sends a fixed token budget. ``"adaptive"`` lets
+            the model decide, guided by ``effort``, and asks for the reasoning
+            summary, which newer models leave out unless requested.
+        """
+        if not self.thinking_enabled:
+            return {}
+        if self.thinking_type == "adaptive":
+            return {
+                "thinking": {"type": "adaptive", "display": "summarized"},
+                "output_config": {"effort": self.effort},
+            }
+        return {"thinking": {"type": "enabled", "budget_tokens": self.budget_tokens}}
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -43,6 +63,8 @@ class Config:
             max_tokens=int(os.getenv("MAX_TOKENS", "8000")),
             budget_tokens=int(os.getenv("BUDGET_TOKENS", "4000")),
             thinking_enabled=os.getenv("THINKING_ENABLED", "true").lower() == "true",
+            thinking_type=os.getenv("THINKING_TYPE", "enabled"),
+            effort=os.getenv("EFFORT", "medium"),
             system_prompt=system_prompt,
             gateway_urls=tuple(json.loads(os.getenv("GATEWAY_URLS", "[]"))),
             gateway_targets=(

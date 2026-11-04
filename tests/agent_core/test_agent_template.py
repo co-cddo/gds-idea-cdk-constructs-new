@@ -30,7 +30,14 @@ _gateway = _load_template_module("_gateway")
 def base_env(monkeypatch):
     monkeypatch.setenv("REGION", "eu-west-2")
     monkeypatch.setenv("MODEL_ID", "eu.anthropic.claude-sonnet-4-6")
-    for name in ("GATEWAY_URLS", "GATEWAY_TARGETS"):
+    for name in (
+        "GATEWAY_URLS",
+        "GATEWAY_TARGETS",
+        "THINKING_ENABLED",
+        "THINKING_TYPE",
+        "EFFORT",
+        "BUDGET_TOKENS",
+    ):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -110,6 +117,44 @@ def test_missing_targets_finds_a_hyphenated_target():
 def test_missing_targets_ignores_tools_with_no_target_prefix():
     """Local tools and the gateway's search tool have no ``target___`` prefix."""
     assert _gateway.missing_targets(("wfc",), ["retrieve"]) == ["wfc"]
+
+
+# -- Thinking tests --
+
+
+def test_config_thinking_defaults_to_a_fixed_budget(base_env):
+    config = _config.Config.from_env()
+    assert config.thinking_request_fields() == {
+        "thinking": {"type": "enabled", "budget_tokens": 4000}
+    }
+
+
+def test_config_thinking_off_sends_no_extra_fields(base_env):
+    base_env.setenv("THINKING_ENABLED", "false")
+    assert _config.Config.from_env().thinking_request_fields() == {}
+
+
+def test_config_adaptive_thinking_asks_for_a_summary_and_the_effort(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("EFFORT", "high")
+    assert _config.Config.from_env().thinking_request_fields() == {
+        "thinking": {"type": "adaptive", "display": "summarized"},
+        "output_config": {"effort": "high"},
+    }
+
+
+def test_config_adaptive_thinking_off_sends_no_extra_fields(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("THINKING_ENABLED", "false")
+    assert _config.Config.from_env().thinking_request_fields() == {}
+
+
+def test_config_adaptive_ignores_the_token_budget(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("BUDGET_TOKENS", "123")
+    assert "budget_tokens" not in str(
+        _config.Config.from_env().thinking_request_fields()
+    )
 
 
 # -- Tool filter tests --
