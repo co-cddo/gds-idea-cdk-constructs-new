@@ -214,6 +214,24 @@ def test_builtin_custom_model_env_vars(builtin_custom_model):
     )
 
 
+def test_custom_agent_env_var_with_a_newline_fails_synth(tmp_path):
+    """AgentCore rejects control characters, so fail at synth, not at deploy."""
+    (tmp_path / "Dockerfile").write_text("FROM python:3.13-slim\n")
+    with pytest.raises(ValueError, match="MY_PROMPT"):
+        AgentCore(
+            App(),
+            "NewlineEnvVarStack",
+            props=AgentCoreProperties(
+                runtime_name="newline_agent",
+                agent=CustomAgent(
+                    agent_code_directory=str(tmp_path),
+                    environment_variables={"MY_PROMPT": "line one\nline two"},
+                ),
+            ),
+            env=CdkEnvironment(account="123456789012", region="eu-west-2"),
+        )
+
+
 def test_multiline_system_prompt_has_no_control_characters():
     """AgentCore rejects control characters (0x00-0x1F, 0x7F) in env var values."""
     prompt = "Line one.\n- a bullet\n\tindented\r\nLine four."

@@ -22,6 +22,23 @@ def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
     return f"/gds-idea/gateways/{gateway_name}/{attribute}"
 
 
+def _check_env_var_values(env_vars: dict[str, str]) -> None:
+    """Fail synth if AgentCore would reject an env var value.
+
+    AgentCore rejects control characters (0x00-0x1F and 0x7F), such as newlines.
+
+    Raises:
+        ValueError: If a value contains a control character.
+    """
+    for name, value in env_vars.items():
+        if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+            raise ValueError(
+                f"Environment variable {name!r} contains a newline or other "
+                "control character, which AgentCore rejects. Encode the value "
+                "(for example with json.dumps) and decode it in your agent."
+            )
+
+
 class AgentCore(Stack):
     """CDK Stack that deploys an Amazon Bedrock AgentCore Runtime.
 
@@ -129,6 +146,7 @@ class AgentCore(Stack):
             max_session_duration=Duration.hours(8),
         )
 
+        _check_env_var_values(env_vars)
         runtime = agentcore.Runtime(
             self,
             "AgentCoreRuntime",
