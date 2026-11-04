@@ -106,6 +106,8 @@ Your directory must contain a `Dockerfile` and an `agent.py` entrypoint. The bui
 
 AgentCore only runs arm64 images, but most CI runners are x86 with no arm64 emulator. The built-in template still builds there: its first stage downloads arm64 wheels on the build machine, and the final arm64 stage only copies files in. If your own `Dockerfile` has `RUN` lines in its final stage, build on an arm64 machine or set up QEMU in your CI.
 
+Environment variable values can't contain newlines or other control characters, because AgentCore rejects them. Synth fails if one does. Encode such values (for example with `json.dumps`) and decode them in your agent.
+
 The construct automatically injects these env vars into your container:
 
 | Variable | When |
