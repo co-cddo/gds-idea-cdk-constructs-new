@@ -88,6 +88,8 @@ def load_template(monkeypatch, signed_transports):
         instances = []
         stream = DEFAULT_STREAM
         fail_with = None
+        # Names of the gateway tools the real Agent would have loaded.
+        tool_names = []
 
         def __init__(self, model, system_prompt, messages, tools):
             self.system_prompt = system_prompt
@@ -459,6 +461,7 @@ def test_create_agent_filters_gateway_tools_to_pinned_targets(load_template):
     template = load_template(
         GATEWAY_URLS=json.dumps([GATEWAY_URL]), GATEWAY_TARGETS='["gats"]'
     )
+    template.FakeAgent.tool_names = ["gats___run_sql"]
 
     patterns = _gateway_tools(_build(template))[0].tool_filters["allowed"]
     assert [p.match("gats___run_sql") is not None for p in patterns] == [True]
@@ -477,6 +480,65 @@ def test_create_agent_passes_history_to_the_agent(template):
     history = [{"role": "user", "content": [{"text": "hi"}]}]
 
     assert _build(template, history).messages == history
+
+
+# -- Pinned targets that do not exist --
+
+
+@pytest.fixture
+def pinned_template(load_template):
+    """``agent.py`` loaded with one gateway and the target ``gats`` pinned."""
+    return load_template(
+        GATEWAY_URLS=json.dumps([GATEWAY_URL]), GATEWAY_TARGETS='["gats"]'
+    )
+
+
+def test_create_agent_fails_when_a_pinned_target_has_no_tools(pinned_template):
+    pinned_template.FakeAgent.tool_names = ["other___run_sql"]
+
+    with pytest.raises(RuntimeError, match=r"no tools for target\(s\) \['gats'\]"):
+        _build(pinned_template)
+
+
+def test_create_agent_closes_the_connections_when_a_target_is_missing(
+    pinned_template,
+):
+    with pytest.raises(RuntimeError):
+        _build(pinned_template)
+
+    (agent,) = pinned_template.FakeAgent.instances
+    assert agent.cleaned_up
+
+
+def test_create_agent_does_not_check_targets_when_none_are_pinned(gateway_template):
+    assert _build(gateway_template).tools
+
+
+def test_turn_fails_when_a_pinned_target_has_no_tools(pinned_template, caplog):
+    module = pinned_template.module
+
+    async def scenario():
+        return await _collect(module.run_agent_turn("hi", "s1"))
+
+    with caplog.at_level(logging.ERROR, logger="agent"):
+        with pytest.raises(RuntimeError, match="gats"):
+            asyncio.run(scenario())
+
+    assert "no tools for target(s) ['gats']" in caplog.text
+    assert module.memory_client.saved == []
+
+
+def test_turn_works_once_the_pinned_target_has_tools(pinned_template):
+    """A failed build is not remembered, so the next turn builds again."""
+    module = pinned_template.module
+
+    async def scenario():
+        with pytest.raises(RuntimeError):
+            await _collect(module.run_agent_turn("hi", "s1"))
+        pinned_template.FakeAgent.tool_names = ["gats___run_sql"]
+        return await _collect(module.run_agent_turn("hi", "s1"))
+
+    assert asyncio.run(scenario())[-1]["type"] == "done"
 
 
 # -- Gateway connection upkeep --

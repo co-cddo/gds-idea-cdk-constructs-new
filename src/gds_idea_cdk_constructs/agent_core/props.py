@@ -14,9 +14,6 @@ _GATEWAY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 # tool-name delimiter (e.g. "gats", "gats_kb", "gats-assurance").
 _TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*([_-][a-z0-9]+)*$")
 
-# Gateway tools are exposed as "{target}___{tool}".
-_TOOL_NAME_DELIMITER = "___"
-
 
 @dataclass
 class ModelConfig:
@@ -125,44 +122,6 @@ class GatewayConfig:
                     "and digits, with single underscores or hyphens between "
                     "words, starting with a letter"
                 )
-
-    def validate_against(
-        self, available_tools: list[str], context_keys: list[str] | None = None
-    ) -> None:
-        """Check every requested target exists on the gateway.
-
-        Does nothing when ``targets`` is ``None``, since there is nothing to
-        check. Fails the build on a typo or a renamed target, instead of the
-        agent silently ending up with no tools at runtime.
-
-        Args:
-            available_tools: Full tool names published by the gateway, in the
-                form ``{target}___{tool}``.
-            context_keys: CDK context keys the tool list was cached under. When
-                given, the error shows the exact command to refresh them.
-
-        Raises:
-            ValueError: If one or more requested targets have no tools on the
-                gateway.
-        """
-        if self.targets is None:
-            return
-
-        available_targets = {
-            tool.split(_TOOL_NAME_DELIMITER, 1)[0] for tool in available_tools
-        }
-        missing = [t for t in self.targets if t not in available_targets]
-        if missing:
-            if context_keys:
-                refresh = "; ".join(f"cdk context --reset '{k}'" for k in context_keys)
-            else:
-                refresh = "cdk context --reset <key>"
-            raise ValueError(
-                f"Targets not found on gateway {self.gateways}: {missing}. "
-                f"Available targets: {sorted(available_targets)}. "
-                "If the target was added to the gateway recently, refresh the "
-                f"cached tool list with: {refresh}"
-            )
 
 
 @dataclass

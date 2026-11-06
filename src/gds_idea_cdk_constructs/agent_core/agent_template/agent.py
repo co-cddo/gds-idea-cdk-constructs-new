@@ -20,7 +20,11 @@ from starlette.exceptions import HTTPException
 from _metrics import extract_and_record_usage
 from _streaming import _extract_response_text, _handle_reasoning
 from _config import Config
-from _gateway import create_gateway_clients, gateway_connection_lost
+from _gateway import (
+    create_gateway_clients,
+    gateway_connection_lost,
+    missing_targets,
+)
 from _session import AgentSession
 
 # --- Configuration (injected via CDK environment variables) ---
@@ -168,7 +172,7 @@ def create_agent(history: list[dict]) -> Agent:
             "budget_tokens": config.budget_tokens,
         }
 
-    return Agent(
+    agent = Agent(
         model=BedrockModel(
             model_id=config.model_id,
             region_name=config.region,
@@ -186,6 +190,17 @@ def create_agent(history: list[dict]) -> Agent:
             ),
         ],
     )
+
+    # Strands loads the gateway tools while building the agent, so a pinned
+    # target that does not exist (a typo, or renamed on the gateway) shows here.
+    missing = missing_targets(config.gateway_targets, agent.tool_names)
+    if missing:
+        agent.cleanup()
+        raise RuntimeError(
+            f"The gateway has no tools for target(s) {missing}. "
+            "Check GatewayConfig.targets."
+        )
+    return agent
 
 
 # ==========================================================================

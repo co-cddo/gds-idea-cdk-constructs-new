@@ -1,6 +1,7 @@
 """CDK stack tests for AgentCore construct."""
 
 import json
+from pathlib import Path
 
 import pytest
 from aws_cdk import App, Environment as CdkEnvironment
@@ -211,6 +212,24 @@ def test_builtin_custom_model_env_vars(builtin_custom_model):
             ),
         },
     )
+
+
+def test_custom_agent_env_var_with_a_newline_fails_synth(tmp_path):
+    """AgentCore rejects control characters, so fail at synth, not at deploy."""
+    (tmp_path / "Dockerfile").write_text("FROM python:3.13-slim\n")
+    with pytest.raises(ValueError, match="MY_PROMPT"):
+        AgentCore(
+            App(),
+            "NewlineEnvVarStack",
+            props=AgentCoreProperties(
+                runtime_name="newline_agent",
+                agent=CustomAgent(
+                    agent_code_directory=str(tmp_path),
+                    environment_variables={"MY_PROMPT": "line one\nline two"},
+                ),
+            ),
+            env=CdkEnvironment(account="123456789012", region="eu-west-2"),
+        )
 
 
 def test_multiline_system_prompt_has_no_control_characters():
@@ -738,128 +757,25 @@ def test_custom_agent_gets_gateway_env_vars_and_permission(cdk_app, cdk_env):
 
 
 # =============================================================================
-# Gateway synth-time validation tests
+# Gateway target tests
 # =============================================================================
 
 
-def _tools_context_key(gateway_name: str) -> str:
-    return (
-        "ssm:account=123456789012"
-        f":parameterName=/gds-idea/gateways/{gateway_name}/tools"
-        ":region=eu-west-2"
-    )
-
-
-def _gateway_stack(targets, context, gateways=("idea-data",)):
-    return AgentCore(
-        App(context=context),
-        "ValidatedStack",
+def test_pinned_targets_need_no_ssm_lookup_at_synth():
+    """Pinned targets are checked by the agent, so synth asks SSM for nothing."""
+    app = App()
+    AgentCore(
+        app,
+        "PinnedStack",
         props=AgentCoreProperties(
-            runtime_name="validated_agent",
-            gateway=GatewayConfig(gateways=list(gateways), targets=targets),
+            runtime_name="pinned_agent",
+            gateway=GatewayConfig(gateways=["idea-data"], targets=["wfc"]),
         ),
         env=CdkEnvironment(account="123456789012", region="eu-west-2"),
     )
 
-
-def test_gateway_targets_validated_against_published_tools():
-    """Tests that known targets synth cleanly when the tool list is cached."""
-    context = {
-        _tools_context_key("idea-data"): '["wfc___read_sql", "wfc___run_sql"]',
-    }
-    stack = _gateway_stack(["wfc"], context)
-    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
-
-
-def test_gateway_unknown_target_fails_synth():
-    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
-    with pytest.raises(ValueError, match=r"Targets not found.*\['wcf'\]"):
-        _gateway_stack(["wcf"], context)
-
-
-def test_gateway_unknown_target_error_shows_the_exact_reset_command():
-    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
-    with pytest.raises(ValueError, match="Targets not found") as exc_info:
-        _gateway_stack(["wcf"], context)
-    assert (
-        "cdk context --reset 'ssm:account=123456789012"
-        ":parameterName=/gds-idea/gateways/idea-data/tools:region=eu-west-2'"
-    ) in str(exc_info.value)
-
-
-def test_gateway_target_may_live_on_any_listed_gateway():
-    context = {
-        _tools_context_key("idea-data"): '["wfc___read_sql"]',
-        _tools_context_key("other"): '["dpd___read_sql"]',
-    }
-    _gateway_stack(["wfc", "dpd"], context, gateways=("idea-data", "other"))
-
-
-def test_gateway_validation_skipped_on_first_synth():
-    """With no cached value the CDK returns a placeholder, so skip validation."""
-    stack = _gateway_stack(["anything"], context={})
-    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
-
-
-def test_gateway_validation_skipped_if_any_gateway_still_placeholder():
-    """A partial cache can't prove a target is missing, so don't fail."""
-    context = {_tools_context_key("idea-data"): '["wfc___read_sql"]'}
-    _gateway_stack(["dpd"], context, gateways=("idea-data", "other"))
-
-
-def test_gateway_no_lookup_when_unfiltered():
-    """Test that no targets means no lookup, so bad cached data is irrelevant."""
-    context = {_tools_context_key("idea-data"): "not json"}
-    stack = _gateway_stack(None, context)
-    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
-
-
-def test_gateway_tools_parameter_invalid_json_raises():
-    context = {_tools_context_key("idea-data"): "[not json"}
-    with pytest.raises(ValueError, match="does not contain valid JSON"):
-        _gateway_stack(["wfc"], context)
-
-
-def test_gateway_tools_parameter_string_list_accepted():
-    """Test that the comma-separated StringList form the gateway publishes works."""
-    context = {
-        _tools_context_key("idea-data"): (
-            "contracts___read_sql,contracts___run_sql,"
-            "gats-assurance___read_sql,gats-assurance___run_sql,"
-            "service-assessments___read_sql,service-assessments___run_sql"
-        )
-    }
-    stack = _gateway_stack(
-        ["contracts", "gats-assurance", "service-assessments"], context
-    )
-    Template.from_stack(stack).resource_count_is("AWS::BedrockAgentCore::Runtime", 1)
-
-
-def test_gateway_tools_parameter_string_list_unknown_target_fails_synth():
-    """Test that a typo is still caught when the tools are a StringList."""
-    context = {_tools_context_key("idea-data"): "gats-assurance___read_sql"}
-    with pytest.raises(ValueError, match=r"Targets not found.*\['gats-assurence'\]"):
-        _gateway_stack(["gats-assurence"], context)
-
-
-def test_gateway_tools_parameter_string_list_ignores_whitespace():
-    """Test that spaces and empty entries in the StringList are ignored."""
-    context = {_tools_context_key("idea-data"): " wfc___read_sql , ,dpd___run_sql "}
-    _gateway_stack(["wfc", "dpd"], context)
-
-
-@pytest.mark.parametrize("value", ["", " ", ",", " , "])
-def test_gateway_tools_parameter_empty_string_list_raises(value):
-    context = {_tools_context_key("idea-data"): value}
-    with pytest.raises(ValueError, match="does not list any tools"):
-        _gateway_stack(["wfc"], context)
-
-
-@pytest.mark.parametrize("value", ['{"a": 1}', "[1, 2]", '"wfc___run_sql"'])
-def test_gateway_tools_parameter_wrong_shape_raises(value):
-    context = {_tools_context_key("idea-data"): value}
-    with pytest.raises(ValueError, match="must contain a JSON list of strings"):
-        _gateway_stack(["wfc"], context)
+    manifest = json.loads((Path(app.synth().directory) / "manifest.json").read_text())
+    assert "missing" not in manifest
 
 
 # =============================================================================
