@@ -165,19 +165,12 @@ def build_system_prompt() -> str:
 
 def create_agent(history: list[dict]) -> Agent:
     """Create a Strands Agent with conversation history and thinking enabled."""
-    additional_fields = {}
-    if config.thinking_enabled:
-        additional_fields["thinking"] = {
-            "type": "enabled",
-            "budget_tokens": config.budget_tokens,
-        }
-
     agent = Agent(
         model=BedrockModel(
             model_id=config.model_id,
             region_name=config.region,
             max_tokens=config.max_tokens,
-            additional_request_fields=additional_fields,
+            additional_request_fields=config.thinking_request_fields(),
         ),
         system_prompt=build_system_prompt(),
         messages=history,

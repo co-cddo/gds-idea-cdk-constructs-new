@@ -24,13 +24,21 @@ def _load_template_module(name: str):
 
 _config = _load_template_module("_config")
 _gateway = _load_template_module("_gateway")
+_streaming = _load_template_module("_streaming")
 
 
 @pytest.fixture
 def base_env(monkeypatch):
     monkeypatch.setenv("REGION", "eu-west-2")
     monkeypatch.setenv("MODEL_ID", "eu.anthropic.claude-sonnet-4-6")
-    for name in ("GATEWAY_URLS", "GATEWAY_TARGETS"):
+    for name in (
+        "GATEWAY_URLS",
+        "GATEWAY_TARGETS",
+        "THINKING_ENABLED",
+        "THINKING_TYPE",
+        "EFFORT",
+        "BUDGET_TOKENS",
+    ):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -110,6 +118,73 @@ def test_missing_targets_finds_a_hyphenated_target():
 def test_missing_targets_ignores_tools_with_no_target_prefix():
     """Local tools and the gateway's search tool have no ``target___`` prefix."""
     assert _gateway.missing_targets(("wfc",), ["retrieve"]) == ["wfc"]
+
+
+# -- Reasoning stream tests --
+
+
+def test_reasoning_chunk_as_strands_streams_it():
+    event = {"delta": {"reasoningContent": {"text": "Checking the table"}}}
+    assert _streaming._handle_reasoning(event) == {
+        "type": "thinking",
+        "data": "Checking the table",
+    }
+
+
+def test_reasoning_chunk_in_the_complete_message_shape():
+    event = {"delta": {"reasoningContent": {"reasoningText": {"text": "Step one"}}}}
+    assert _streaming._handle_reasoning(event) == {
+        "type": "thinking",
+        "data": "Step one",
+    }
+
+
+@pytest.mark.parametrize(
+    "reasoning",
+    [{"signature": "abc"}, {"redactedContent": b"x"}, {"text": ""}, {}],
+)
+def test_reasoning_delta_without_text_gives_nothing(reasoning):
+    assert (
+        _streaming._handle_reasoning({"delta": {"reasoningContent": reasoning}}) is None
+    )
+
+
+# -- Thinking tests --
+
+
+def test_config_thinking_defaults_to_a_fixed_budget(base_env):
+    config = _config.Config.from_env()
+    assert config.thinking_request_fields() == {
+        "thinking": {"type": "enabled", "budget_tokens": 4000}
+    }
+
+
+def test_config_thinking_off_sends_no_extra_fields(base_env):
+    base_env.setenv("THINKING_ENABLED", "false")
+    assert _config.Config.from_env().thinking_request_fields() == {}
+
+
+def test_config_adaptive_thinking_asks_for_a_summary_and_the_effort(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("EFFORT", "high")
+    assert _config.Config.from_env().thinking_request_fields() == {
+        "thinking": {"type": "adaptive", "display": "summarized"},
+        "output_config": {"effort": "high"},
+    }
+
+
+def test_config_adaptive_thinking_off_sends_no_extra_fields(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("THINKING_ENABLED", "false")
+    assert _config.Config.from_env().thinking_request_fields() == {}
+
+
+def test_config_adaptive_ignores_the_token_budget(base_env):
+    base_env.setenv("THINKING_TYPE", "adaptive")
+    base_env.setenv("BUDGET_TOKENS", "123")
+    assert "budget_tokens" not in str(
+        _config.Config.from_env().thinking_request_fields()
+    )
 
 
 # -- Tool filter tests --

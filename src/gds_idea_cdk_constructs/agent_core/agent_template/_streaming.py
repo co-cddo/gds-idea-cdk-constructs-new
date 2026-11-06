@@ -3,11 +3,16 @@
 # ==========================================================================
 
 def _handle_reasoning(event: dict):
-    """Yield a thinking chunk from a delta event, if present."""
+    """Return a thinking chunk from a reasoning delta event, if it has text.
+
+    Strands streams reasoning as ``reasoningContent: {"text": ...}``. The text can
+    also sit under ``reasoningText`` (the shape of a complete message), so both
+    are read. Deltas without text, such as the signature, give ``None``.
+    """
     reasoning = event["delta"]["reasoningContent"]
-    text_block = reasoning.get("reasoningText", {})
-    if "text" in text_block:
-        return {"type": "thinking", "data": text_block["text"]}
+    text = reasoning.get("text") or reasoning.get("reasoningText", {}).get("text")
+    if text:
+        return {"type": "thinking", "data": text}
     return None
 
 

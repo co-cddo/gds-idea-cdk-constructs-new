@@ -15,18 +15,35 @@ _GATEWAY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 _TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*([_-][a-z0-9]+)*$")
 
 
+_THINKING_TYPES = ("enabled", "adaptive")
+_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
 @dataclass
 class ModelConfig:
-    """Model configuration with synth-time validation."""
+    """Model configuration with synth-time validation.
+
+    ``thinking_type`` picks how the model thinks when ``thinking_enabled``:
+
+    - ``"enabled"``: a fixed thinking budget of ``budget_tokens``. Older models.
+    - ``"adaptive"``: the model decides when and how much to think, guided by
+      ``effort``. Newer models (such as Claude Sonnet 5.5) reject ``"enabled"``.
+    """
 
     model_id: str = "eu.anthropic.claude-sonnet-4-6"
     max_tokens: int = 8000
     thinking_enabled: bool = True
     budget_tokens: int = 4000
     max_history: int = 20
+    thinking_type: str = "enabled"
+    effort: str = "medium"
 
     def __post_init__(self) -> None:
-        if self.budget_tokens >= self.max_tokens:
+        if self.thinking_type not in _THINKING_TYPES:
+            raise ValueError(f"thinking_type must be one of {_THINKING_TYPES}")
+        if self.effort not in _EFFORT_LEVELS:
+            raise ValueError(f"effort must be one of {_EFFORT_LEVELS}")
+        if self.thinking_type == "enabled" and self.budget_tokens >= self.max_tokens:
             raise ValueError("budget_tokens must be less than max_tokens")
 
     def to_envs(self) -> dict[str, str]:
@@ -35,6 +52,8 @@ class ModelConfig:
             "MAX_TOKENS": str(self.max_tokens),
             "BUDGET_TOKENS": str(self.budget_tokens),
             "THINKING_ENABLED": str(self.thinking_enabled).lower(),
+            "THINKING_TYPE": self.thinking_type,
+            "EFFORT": self.effort,
             "MAX_HISTORY": str(self.max_history),
         }
 

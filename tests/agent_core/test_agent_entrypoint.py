@@ -541,6 +541,39 @@ def test_turn_works_once_the_pinned_target_has_tools(pinned_template):
     assert asyncio.run(scenario())[-1]["type"] == "done"
 
 
+# -- Thinking events --
+
+
+def _reasoning_chunk(text):
+    """Both events Strands emits for one reasoning chunk, as seen from a real model."""
+    return [
+        {
+            "event": {
+                "contentBlockDelta": {"delta": {"reasoningContent": {"text": text}}}
+            }
+        },
+        {
+            "reasoningText": text,
+            "delta": {"reasoningContent": {"text": text}},
+            "reasoning": True,
+        },
+    ]
+
+
+def test_turn_streams_reasoning_as_thinking_events(load_template):
+    template = load_template()
+    template.FakeAgent.stream = [
+        *_reasoning_chunk("Check "),
+        *_reasoning_chunk("the table."),
+        *DEFAULT_STREAM,
+    ]
+
+    events = asyncio.run(_collect(template.module.run_agent_turn("hi", "s1")))
+
+    thinking = [e["data"] for e in events if e["type"] == "thinking"]
+    assert thinking == ["Check ", "the table."]
+
+
 # -- Gateway connection upkeep --
 
 
