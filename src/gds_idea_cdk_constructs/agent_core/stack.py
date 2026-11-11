@@ -94,9 +94,7 @@ class AgentCore(Stack):
                 memory_name=props.memory.name,
                 description=props.memory.description,
             )
-            cfn_memory = memory.node.default_child
-            if cfn_memory:
-                cfn_memory.apply_removal_policy(props.removal_policy)
+            memory.node.find_child("Memory").apply_removal_policy(props.removal_policy)
             env_vars["MEMORY_ID"] = memory.memory_id
 
         # --- Knowledge Base (optional)

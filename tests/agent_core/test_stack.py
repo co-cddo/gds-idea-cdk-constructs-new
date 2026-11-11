@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from aws_cdk import App, Environment as CdkEnvironment
+from aws_cdk import App, Environment as CdkEnvironment, RemovalPolicy
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.agent_core.props import (
@@ -373,6 +373,28 @@ def test_custom_memory_name(builtin_custom_model):
         "AWS::BedrockAgentCore::Memory",
         {"Name": "custom_memory"},
     )
+
+
+@pytest.mark.parametrize(
+    ("removal_policy", "deletion_policy"),
+    [(RemovalPolicy.RETAIN, "Retain"), (RemovalPolicy.DESTROY, "Delete")],
+)
+def test_memory_follows_the_removal_policy(
+    cdk_app, cdk_env, removal_policy, deletion_policy
+):
+    """The memory store gets the removal policy set in the properties."""
+    stack = AgentCore(
+        cdk_app,
+        "TestStack",
+        props=AgentCoreProperties(
+            runtime_name="test_agent", removal_policy=removal_policy
+        ),
+        env=cdk_env,
+    )
+    template = Template.from_stack(stack)
+    memories = template.find_resources("AWS::BedrockAgentCore::Memory")
+
+    assert [m["DeletionPolicy"] for m in memories.values()] == [deletion_policy]
 
 
 def test_memory_id_injected_as_env_var(builtin_default):
