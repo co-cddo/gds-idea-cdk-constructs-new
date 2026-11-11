@@ -94,8 +94,6 @@ class AgentCore(Stack):
                 memory_name=props.memory.name,
                 description=props.memory.description,
             )
-            # The alpha Memory has no default child: its CloudFormation resource
-            # is the child named "Memory".
             memory.node.find_child("Memory").apply_removal_policy(props.removal_policy)
             env_vars["MEMORY_ID"] = memory.memory_id
 
