@@ -94,11 +94,15 @@ class KnowledgeBaseConfig:
 class GatewayConfig:
     """Consume tools from one or more shared AgentCore Gateways.
 
-    Gateways are created and owned by a separate repository. This config only
-    names the gateways to use and, optionally, which targets to keep.
+    Gateways are created and owned by a separate repository. This config names
+    the gateways to use and the targets the agent may call on them.
 
-    The ``targets`` allowlist keeps an agent's tool list short and relevant. It
-    is not a security boundary: access is enforced by the gateway itself.
+    ``targets`` does two things. The agent keeps only tools from those targets,
+    and the stack creates a Cedar policy in each gateway's policy engine that
+    permits the agent's execution role to call only those targets. A gateway
+    that enforces its policies shows the agent no tools without that policy.
+    Every gateway named here must publish ``/gds-idea/gateways/<name>/policy-engine-id``
+    to SSM and must have every target listed.
 
     Attributes:
         gateways: Names of the gateways to consume, e.g. ``["idea-data"]``.
@@ -106,13 +110,14 @@ class GatewayConfig:
             a renamed gateway shows up in each agent's code instead of
             silently breaking it. Always a list so a second gateway can be
             added later without an API change.
-        targets: Target names to keep (e.g. ``["gats"]`` keeps every tool named
-            ``gats___*``). ``None`` keeps every tool on the gateway, including
-            targets added in future.
+        targets: Target names the agent may call (e.g. ``["gats"]`` allows every
+            tool named ``gats___*``). Required and not empty: the agent is only
+            ever permitted the targets it names, so a target added to the
+            gateway later is not available until it is listed here.
     """
 
     gateways: list[str]
-    targets: list[str] | None = None
+    targets: list[str]
 
     def __post_init__(self) -> None:
         if not self.gateways:
@@ -126,12 +131,8 @@ class GatewayConfig:
                     "digits and hyphens, starting with a letter"
                 )
 
-        if self.targets is None:
-            return
         if not self.targets:
-            raise ValueError(
-                "targets must not be empty; use None to keep every tool on the gateway"
-            )
+            raise ValueError("targets must name at least one gateway target")
         if len(set(self.targets)) != len(self.targets):
             raise ValueError(f"targets must not contain duplicates: {self.targets}")
         for target in self.targets:
@@ -185,7 +186,8 @@ class AgentCoreProperties:
 
     gateway: GatewayConfig | None = None
     """Optional gateway attachment. When set, the agent consumes tools from the
-    named shared AgentCore Gateway(s)."""
+    named shared AgentCore Gateway(s), and the stack permits its role to call
+    the listed targets in each gateway's policy engine."""
 
     description: str = "An AgentCore Runtime deployed by the Agent Constructs Template"
     """Runtime description."""

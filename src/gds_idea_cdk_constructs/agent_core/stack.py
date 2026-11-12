@@ -5,6 +5,7 @@ from aws_cdk import (
     CfnOutput,
     Duration,
     Stack,
+    aws_bedrockagentcore as bedrockagentcore,
     aws_iam as iam,
     aws_ssm as ssm,
 )
@@ -20,6 +21,32 @@ from .props import (
 def _gateway_ssm_path(gateway_name: str, attribute: str) -> str:
     """SSM parameter path published by the gateway repository."""
     return f"/gds-idea/gateways/{gateway_name}/{attribute}"
+
+
+def _cedar_permit(principal: str, gateway_arn: str, targets: list[str]) -> str:
+    """Build the Cedar policy that lets one role call the given targets.
+
+    The gateway sees an assumed-role caller as ``assumed-role/<role>`` with the
+    session name removed, so the principal is matched exactly. A policy that
+    names actions must name the gateway it applies to. Action names take no
+    wildcard, so each target is listed; a target covers all of its tools.
+
+    Args:
+        principal: Assumed-role ARN without a session name.
+        gateway_arn: ARN of the gateway the policy applies to. May be a token.
+        targets: Names of the gateway targets the role may call.
+
+    Returns:
+        The Cedar policy statement.
+    """
+    actions = ", ".join(f'AgentCore::Action::"{target}"' for target in targets)
+    return (
+        "permit(\n"
+        f'  principal == AgentCore::IamEntity::"{principal}",\n'
+        f"  action in [{actions}],\n"
+        f'  resource == AgentCore::Gateway::"{gateway_arn}"\n'
+        ");"
+    )
 
 
 def _check_env_var_values(env_vars: dict[str, str]) -> None:
@@ -123,8 +150,7 @@ class AgentCore(Stack):
                 )
             # to_json_string (not json.dumps) so deploy-time SSM tokens resolve
             env_vars["GATEWAY_URLS"] = self.to_json_string(gateway_urls)
-            if props.gateway.targets is not None:
-                env_vars["GATEWAY_TARGETS"] = json.dumps(props.gateway.targets)
+            env_vars["GATEWAY_TARGETS"] = json.dumps(props.gateway.targets)
 
         # --- Artifact + Runtime ---
         code_artifact = agentcore.AgentRuntimeArtifact.from_asset(
@@ -132,13 +158,14 @@ class AgentCore(Stack):
             platform=props.platform,
         )
 
-        # A fixed role name lets other stacks (e.g. a gateway's Cedar policy)
-        # refer to this role. A generated name changes if the role is replaced.
+        # A fixed role name lets the gateway policies below refer to this role.
+        # A generated name changes if the role is replaced.
         # Same settings as the role the runtime would create for itself.
+        role_name = f"{props.runtime_name}-{self.region}"
         execution_role = iam.Role(
             self,
             "AgentCoreRuntimeRole",
-            role_name=f"{props.runtime_name}-{self.region}",
+            role_name=role_name,
             assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
             description="Execution role for Bedrock Agent Core Runtime",
             max_session_duration=Duration.hours(8),
@@ -154,6 +181,35 @@ class AgentCore(Stack):
             environment_variables=env_vars,
             execution_role=execution_role,
         )
+
+        # --- Gateway policies ---
+        # A gateway enforces its Cedar policies: a caller that no policy permits
+        # sees no tools. The policy goes in the gateway's own policy engine,
+        # whose ID the gateway publishes to SSM.
+        if props.gateway:
+            principal = f"arn:aws:sts::{self.account}:assumed-role/{role_name}"
+            for gateway_name, gateway_arn in zip(
+                props.gateway.gateways, gateway_arns, strict=True
+            ):
+                bedrockagentcore.CfnPolicy(
+                    self,
+                    f"GatewayPolicy-{gateway_name}",
+                    name=props.runtime_name,
+                    policy_engine_id=ssm.StringParameter.value_for_string_parameter(
+                        self, _gateway_ssm_path(gateway_name, "policy-engine-id")
+                    ),
+                    definition=bedrockagentcore.CfnPolicy.PolicyDefinitionProperty(
+                        cedar=bedrockagentcore.CfnPolicy.CedarPolicyProperty(
+                            statement=_cedar_permit(
+                                principal, gateway_arn, props.gateway.targets
+                            )
+                        )
+                    ),
+                    description=(
+                        f"Lets the {props.runtime_name} agent call its targets "
+                        f"on {gateway_name}."
+                    ),
+                )
 
         # Expose cross-stack attributes
         self.runtime_role = runtime.role

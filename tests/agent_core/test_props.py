@@ -134,11 +134,15 @@ def test_gateway_config_requires_gateways_when_only_targets_given():
         GatewayConfig(targets=["gats"])
 
 
-def test_gateway_config_targets_default_none():
-    """Test that targets defaults to None (keep every tool)."""
-    config = GatewayConfig(gateways=["idea-data"])
-    assert config.gateways == ["idea-data"]
-    assert config.targets is None
+def test_gateway_config_requires_targets():
+    """Test that targets has no default: the agent is only permitted what it names."""
+    with pytest.raises(TypeError, match="targets"):
+        GatewayConfig(gateways=["idea-data"])
+
+
+def test_gateway_config_rejects_none_targets():
+    with pytest.raises(ValueError, match="at least one gateway target"):
+        GatewayConfig(gateways=["idea-data"], targets=None)
 
 
 def test_gateway_config_custom_values():
@@ -149,22 +153,22 @@ def test_gateway_config_custom_values():
 
 def test_gateway_config_empty_gateways_raises():
     with pytest.raises(ValueError, match="at least one gateway"):
-        GatewayConfig(gateways=[])
+        GatewayConfig(gateways=[], targets=["wfc"])
 
 
 def test_gateway_config_duplicate_gateways_raises():
     with pytest.raises(ValueError, match="gateways must not contain duplicates"):
-        GatewayConfig(gateways=["idea-data", "idea-data"])
+        GatewayConfig(gateways=["idea-data", "idea-data"], targets=["wfc"])
 
 
 @pytest.mark.parametrize("name", ["Idea", "1data", "idea_data", "idea data", ""])
 def test_gateway_config_invalid_gateway_name_raises(name):
     with pytest.raises(ValueError, match="Invalid gateway name"):
-        GatewayConfig(gateways=[name])
+        GatewayConfig(gateways=[name], targets=["wfc"])
 
 
 def test_gateway_config_empty_targets_raises():
-    with pytest.raises(ValueError, match="targets must not be empty"):
+    with pytest.raises(ValueError, match="at least one gateway target"):
         GatewayConfig(gateways=["idea-data"], targets=[])
 
 

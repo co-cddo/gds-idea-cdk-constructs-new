@@ -116,7 +116,7 @@ The construct automatically injects these env vars into your container:
 | `REGION` | Always |
 | `MEMORY_ID` | When `memory` is set |
 | `GATEWAY_URLS` | When `gateway` is set |
-| `GATEWAY_TARGETS` | When `gateway` is set with `targets` |
+| `GATEWAY_TARGETS` | When `gateway` is set |
 
 ### Conversations and `runtimeSessionId`
 
@@ -159,7 +159,8 @@ from gds_idea_cdk_constructs.agent_core import (
     GatewayConfig,
 )
 
-# Only the tools of the "gats" target
+# Only the tools of the "gats" target: the agent keeps those tools, and the
+# stack permits its role to call them on the gateway
 AgentCore(
     app,
     "GatsAgent",
@@ -169,17 +170,9 @@ AgentCore(
     ),
     env=cdk.Environment(account="123456789012", region="eu-west-2"),
 )
-
-# Every tool on the gateway, including ones added later
-AgentCore(
-    app,
-    "DiaAgent",
-    props=AgentCoreProperties(
-        runtime_name="dia_agent",
-        gateway=GatewayConfig(gateways=["idea-data"]),
-    ),
-)
 ```
+
+`targets` is required. An agent is only ever permitted the targets it names, so a target added to the gateway later stays unavailable until you list it.
 
 Tools are named `{target}___{tool}` (three underscores), so `targets=["gats"]` keeps every tool whose name starts with `gats___`.
 
@@ -187,27 +180,41 @@ What the construct does for you:
 
 - Reads the gateway URL and ARN from `/gds-idea/gateways/{name}/url` and `/arn` at deploy time.
 - Lets the runtime role call the gateway (`bedrock-agentcore:InvokeGateway`, on the exact gateway ARN).
-- Passes `GATEWAY_URLS` (and `GATEWAY_TARGETS`, when you pin targets) to the agent.
+- Passes `GATEWAY_URLS` and `GATEWAY_TARGETS` to the agent.
+- Creates a Cedar policy in each gateway's policy engine that permits the runtime role to call your targets (see below).
 - Checks your targets when the agent starts, so a typo fails the turn and names the missing target, instead of leaving the agent without tools.
 
-#### Two separate controls
+#### What `targets` controls
 
 | | Where | What it does |
 |---|---|---|
-| `targets=[...]` | This construct | Keeps the agent's tool list short. Not a security control: it is a filter in the agent's own code. |
-| Cedar policies | The gateway repository | Decides which callers may use which tools. Enforced by the gateway. |
+| `targets=[...]` in the agent | The agent's own code | Keeps the agent's tool list short. A filter, not a security control. |
+| The Cedar policy this construct creates | Each gateway's policy engine | Permits the runtime role to call the listed targets. Enforced by the gateway. |
+| The gateway's own policies | The gateway repository | Decide which other callers (for example developers) may use which tools. |
+
+The policy for an agent looks like this, and is named after `runtime_name`:
+
+```
+permit(
+  principal == AgentCore::IamEntity::"arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>",
+  action in [AgentCore::Action::"gats"],
+  resource == AgentCore::Gateway::"<gateway arn>"
+);
+```
+
+A gateway that enforces its policies (the prod gateway does) shows a caller no tools unless a policy permits it. Without this policy the agent would fail at start-up with "The gateway has no tools for target(s)".
 
 #### Things to know
 
-- **Targets are checked by the agent, not at synth.** When the agent is built, it checks that every pinned target has at least one tool. If one has none (a typo, or a target renamed on the gateway), the turn fails with an error naming it, and the next turn tries again. Synth does not read the gateway's tool list, so it needs no AWS access and no `cdk.context.json` entry.
-- **Deploy the gateway first.** The URL and ARN come from SSM parameters the gateway repository publishes. If they do not exist, the deploy fails.
-- **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN.
-- **The gateway's Cedar policy needs this agent's role name.** The role is named `{runtime_name}-{region}` (for example `gats_agent-eu-west-2`), so the caller is `arn:aws:sts::<account>:assumed-role/<runtime_name>-<region>`. Changing `runtime_name` changes the role, so the policy must change too. If the name does not match, the agent sees no tools.
+- **Targets are checked twice, and not at synth.** The gateway's policy engine validates the policy against the gateway's tools when the stack deploys. When the agent is built, it also checks that every pinned target has at least one tool. If one has none (a typo, or a target renamed on the gateway), the turn fails with an error naming it, and the next turn tries again. Synth does not read the gateway's tool list, so it needs no AWS access and no `cdk.context.json` entry.
+- **Deploy the gateway first.** The URL, ARN and policy engine ID come from SSM parameters the gateway repository publishes (`url`, `arn` and `policy-engine-id`). If they do not exist, the deploy fails.
+- **If a gateway is recreated,** redeploy each agent that uses it, so it picks up the new URL and ARN and re-creates its policy in the new engine. A recreated policy engine loses every agent's policy.
+- **The policy and the role share one name.** The role is named `{runtime_name}-{region}` (for example `gats_agent-eu-west-2`) and the policy permits exactly that role. Both come from `runtime_name`, so renaming it changes both together.
 - **A change that forces the role to be replaced needs the role renamed first.** The role has a fixed name, and CloudFormation cannot create a replacement with the same name while the old one exists.
 - **New gateway tools appear when the agent is next built:** a new conversation, or within 15 minutes (see below). Not instantly.
-- **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Pinned agents do not get it (it has no `target___` prefix); agents with no `targets` do.
+- **Semantic search.** If the gateway has semantic search on, it adds a built-in `x_amz_bedrock_agentcore_search` tool. Agents do not get it: it has no `target___` prefix, so the target filter drops it.
 - **Target names are words joined by a single `_` or `-`** (`gats_kb`, `gats-assurance`; not `gats__kb` or `gats--assurance`), so they cannot be confused with the `___` separator.
-- **Several gateways** can be listed in `gateways=[...]`. A target may live on any of them.
+- **Several gateways** can be listed in `gateways=[...]`. Each gets a policy naming all of `targets`, so list only targets that exist on every gateway you list.
 
 #### How the connection is kept
 
@@ -383,7 +390,7 @@ Requests must be signed with SigV4 for the `bedrock-agentcore` service. The buil
 | Property | Type | Default | Description |
 |---|---|---|---|
 | `gateways` | `list[str]` | *(required)* | Gateway names, e.g. `["idea-data"]`. No default, so a renamed gateway cannot silently break agents. Lowercase letters, digits and hyphens. |
-| `targets` | `list[str] \| None` | `None` | Targets to keep, e.g. `["gats"]`. `None` keeps every tool, including future ones. An empty list is rejected. |
+| `targets` | `list[str]` | *(required)* | Targets the agent may call, e.g. `["gats"]`. The agent keeps only their tools, and the stack permits its role to call them on each gateway. At least one is required. |
 
 ## Knowledge Base
 
