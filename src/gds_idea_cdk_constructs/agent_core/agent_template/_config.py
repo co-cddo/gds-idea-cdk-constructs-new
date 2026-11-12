@@ -52,8 +52,8 @@ class Config:
             system_prompt = prompt_file.read_text(encoding="utf-8")
         else:
             system_prompt = ""
-        # GATEWAY_TARGETS is only set when the CDK config pins targets.
-        # Absent means "keep every tool on the gateway".
+        # The stack always sets GATEWAY_TARGETS when a gateway is attached. It is
+        # optional here only so the template can run without a gateway.
         gateway_targets = os.getenv("GATEWAY_TARGETS")
         return cls(
             region=os.environ["REGION"],

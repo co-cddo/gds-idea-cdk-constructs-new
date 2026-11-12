@@ -15,7 +15,7 @@ from gds_idea_cdk_constructs.agent_core.props import (
     MemoryConfig,
     ModelConfig,
 )
-from gds_idea_cdk_constructs.agent_core.stack import AgentCore
+from gds_idea_cdk_constructs.agent_core.stack import AgentCore, _cedar_permit
 
 # -- Fixtures --
 
@@ -118,13 +118,14 @@ def custom_agent_no_memory(cdk_app, cdk_env):
 
 
 @pytest.fixture
-def gateway_unfiltered(cdk_app, cdk_env):
-    """Gateway attached with no target filter."""
+def gateway_single(cdk_app, cdk_env):
+    """One gateway attached, pinned to the gats target."""
     return AgentCore(
         cdk_app,
         "GatewayStack",
         props=AgentCoreProperties(
-            runtime_name="gw_agent", gateway=GatewayConfig(gateways=["idea-data"])
+            runtime_name="gw_agent",
+            gateway=GatewayConfig(gateways=["idea-data"], targets=["gats"]),
         ),
         env=cdk_env,
     )
@@ -132,7 +133,7 @@ def gateway_unfiltered(cdk_app, cdk_env):
 
 @pytest.fixture
 def gateway_filtered(cdk_app, cdk_env):
-    """Two gateways attached, filtered to the wfc target."""
+    """Two gateways attached, pinned to the wfc target."""
     return AgentCore(
         cdk_app,
         "GatewayFilteredStack",
@@ -683,9 +684,9 @@ def _gateway_param_logical_id(template, ssm_path):
     raise AssertionError(f"No CloudFormation parameter for {ssm_path}")
 
 
-def test_gateway_reads_url_and_arn_from_ssm(gateway_unfiltered):
+def test_gateway_reads_url_and_arn_from_ssm(gateway_single):
     """Tests that the gateway URL and ARN are resolved from SSM at deploy time."""
-    template = Template.from_stack(gateway_unfiltered)
+    template = Template.from_stack(gateway_single)
     for attribute in ("url", "arn"):
         template.has_parameter(
             "*",
@@ -725,14 +726,13 @@ def test_gateway_targets_env_var_set_when_filtered(gateway_filtered):
     )
 
 
-def test_no_gateway_targets_env_var_when_unfiltered(gateway_unfiltered):
-    """No GATEWAY_TARGETS means the agent keeps every tool on the gateway."""
-    template_json = Template.from_stack(gateway_unfiltered).to_json()
-    for resource in template_json["Resources"].values():
-        if resource["Type"] == "AWS::BedrockAgentCore::Runtime":
-            env_vars = resource["Properties"]["EnvironmentVariables"]
-            assert "GATEWAY_URLS" in env_vars
-            assert "GATEWAY_TARGETS" not in env_vars
+def test_gateway_targets_env_var_always_set(gateway_single):
+    """The stack always pins targets, so the agent keeps only what it may call."""
+    template = Template.from_stack(gateway_single)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Runtime",
+        {"EnvironmentVariables": Match.object_like({"GATEWAY_TARGETS": '["gats"]'})},
+    )
 
 
 def test_gateway_invoke_permission_uses_exact_gateway_arns(gateway_filtered):
@@ -938,3 +938,93 @@ def test_longest_runtime_name_and_region_fit_the_iam_role_name_limit(cdk_app):
     )
     (role,) = roles.values()
     assert len(role["Properties"]["RoleName"]) <= 64
+
+
+# =============================================================================
+# Gateway policy tests
+# =============================================================================
+
+
+def _policy_statement_parts(statement):
+    """Return the literal parts of a Fn::Join policy statement, tokens as dicts."""
+    assert list(statement) == ["Fn::Join"]
+    return statement["Fn::Join"][1]
+
+
+def test_gateway_reads_policy_engine_id_from_ssm(gateway_single):
+    template = Template.from_stack(gateway_single)
+    template.has_parameter(
+        "*",
+        {
+            "Type": "AWS::SSM::Parameter::Value<String>",
+            "Default": "/gds-idea/gateways/idea-data/policy-engine-id",
+        },
+    )
+
+
+def test_one_policy_per_gateway_in_its_own_engine(gateway_filtered):
+    template = Template.from_stack(gateway_filtered)
+    template.resource_count_is("AWS::BedrockAgentCore::Policy", 2)
+    for gateway in ("idea-data", "other"):
+        engine_param = _gateway_param_logical_id(
+            template, f"/gds-idea/gateways/{gateway}/policy-engine-id"
+        )
+        template.has_resource_properties(
+            "AWS::BedrockAgentCore::Policy",
+            {"PolicyEngineId": {"Ref": engine_param}},
+        )
+
+
+def test_policy_is_named_after_the_runtime(gateway_single):
+    template = Template.from_stack(gateway_single)
+    template.has_resource_properties(
+        "AWS::BedrockAgentCore::Policy", {"Name": "gw_agent"}
+    )
+
+
+def test_policy_permits_the_runtime_role_on_its_targets(gateway_single, cdk_env):
+    template = Template.from_stack(gateway_single)
+    arn_param = _gateway_param_logical_id(template, "/gds-idea/gateways/idea-data/arn")
+    policies = [
+        r
+        for r in template.to_json()["Resources"].values()
+        if r["Type"] == "AWS::BedrockAgentCore::Policy"
+    ]
+    assert len(policies) == 1
+    statement = policies[0]["Properties"]["Definition"]["Cedar"]["Statement"]
+    assert _policy_statement_parts(statement) == [
+        "permit(\n"
+        "  principal == AgentCore::IamEntity::"
+        f'"arn:aws:sts::{cdk_env.account}:assumed-role/gw_agent-{cdk_env.region}",\n'
+        '  action in [AgentCore::Action::"gats"],\n'
+        '  resource == AgentCore::Gateway::"',
+        {"Ref": arn_param},
+        '"\n);',
+    ]
+
+
+def test_policy_principal_is_the_runtimes_role_name(gateway_single):
+    """The policy and the role must use the same name, or the rule never matches."""
+    template = Template.from_stack(gateway_single)
+    template.has_resource_properties(
+        "AWS::IAM::Role", {"RoleName": "gw_agent-eu-west-2"}
+    )
+
+
+def test_no_policy_without_a_gateway(builtin_default):
+    Template.from_stack(builtin_default).resource_count_is(
+        "AWS::BedrockAgentCore::Policy", 0
+    )
+
+
+def test_cedar_permit_lists_every_target():
+    principal = "arn:aws:sts::111122223333:assumed-role/agent-eu-west-2"
+    gateway = "arn:aws:bedrock-agentcore:eu-west-2:111122223333:gateway/gw-abc"
+    assert _cedar_permit(principal, gateway, ["gats-assurance", "contracts"]) == (
+        "permit(\n"
+        f'  principal == AgentCore::IamEntity::"{principal}",\n'
+        '  action in [AgentCore::Action::"gats-assurance", '
+        'AgentCore::Action::"contracts"],\n'
+        f'  resource == AgentCore::Gateway::"{gateway}"\n'
+        ");"
+    )
