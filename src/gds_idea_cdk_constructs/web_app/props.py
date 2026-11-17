@@ -29,4 +29,8 @@ class WebAppContainerProperties:
     """Health check grace period in seconds"""
 
     min_healthy_percent: int = 50
-    """Mininum healthy percentage """
+    """Minimum healthy percentage """
+
+    max_healthy_percent: int = 200
+    """Maximum healthy percentage.
+    Set to 200 to let ECS start a replacement task before draining the old one"""

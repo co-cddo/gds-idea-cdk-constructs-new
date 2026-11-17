@@ -191,6 +191,7 @@ class WebApp(BaseWebStack):
         environment = self.container_props.environment_variables
         health_check_grace_period = self.container_props.health_check_grace_period
         min_healthy_percent = self.container_props.min_healthy_percent
+        max_healthy_percent = self.container_props.max_healthy_percent
 
         # Look up the cluster
         self.cluster = ecs.Cluster.from_cluster_attributes(
@@ -243,6 +244,7 @@ class WebApp(BaseWebStack):
             circuit_breaker=ecs.DeploymentCircuitBreaker(enable=True, rollback=True),
             health_check_grace_period=Duration.seconds(health_check_grace_period),
             min_healthy_percent=min_healthy_percent,
+            max_healthy_percent=max_healthy_percent,
         )
 
     def _setup_load_balancer(self) -> None:
