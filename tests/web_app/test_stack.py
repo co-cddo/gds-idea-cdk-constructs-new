@@ -898,6 +898,25 @@ def test_web_app_scheduled_restart_hardens_healthy_percent(
     )
 
 
+def test_web_app_scheduled_restart_rejects_insufficient_max_percent(
+    cdk_app, deployment_config, app_config
+):
+    """Test that a restart with max_healthy_percent <= the 100% floor is rejected."""
+    with pytest.raises(ValueError, match=r"raises the effective min_healthy_percent"):
+        WebApp(
+            cdk_app,
+            deployment_config,
+            app_config,
+            authentication=AuthType.NONE,
+            docker_context_path="tests/fixtures",
+            dockerfile_path="Dockerfile",
+            container_props=WebAppContainerProperties(
+                min_healthy_percent=50, max_healthy_percent=80
+            ),
+            refresh_schedule=RefreshSchedule(rate=Duration.hours(6)),
+        )
+
+
 def test_grant_force_deploy_adds_update_service_permission(
     cdk_app, deployment_config, app_config
 ):
