@@ -5,6 +5,7 @@ import json
 import pytest
 from aws_cdk import (
     App,
+    Duration,
     Environment as CdkEnvironment,
     Stack,
     aws_cloudwatch as cloudwatch,
@@ -15,7 +16,10 @@ from aws_cdk.assertions import Match, Template
 from gds_idea_cdk_constructs.config import DeploymentConfig, DeploymentEnvironment
 from gds_idea_cdk_constructs.web_app._auth_strategies import AuthType
 from gds_idea_cdk_constructs.web_app._dashboard import DashboardProperties
-from gds_idea_cdk_constructs.web_app.props import WebAppContainerProperties
+from gds_idea_cdk_constructs.web_app.props import (
+    RefreshSchedule,
+    WebAppContainerProperties,
+)
 from gds_idea_cdk_constructs.web_app.stack import WebApp
 from tests.conftest import TEST_CONFIG
 
@@ -391,6 +395,16 @@ def test_web_app_stack_custom_container_props(cdk_app, deployment_config, app_co
     template.has_resource_properties(
         "AWS::ElasticLoadBalancingV2::TargetGroup",
         {"HealthCheckPath": "/custom/health"},
+    )
+
+
+def test_web_app_stack_default_max_healthy_percent(webapp_no_auth):
+    """Test that the service allows a second task during deployments by default."""
+    template = Template.from_stack(webapp_no_auth)
+
+    template.has_resource_properties(
+        "AWS::ECS::Service",
+        {"DeploymentConfiguration": Match.object_like({"MaximumPercent": 200})},
     )
 
 
@@ -810,3 +824,74 @@ def test_default_dashboard_hides_user_emails(cdk_app, deployment_config, app_con
     assert "last_login by email" not in body
     # No per-user request-count query
     assert "count() as requests by email" not in body
+
+
+def test_web_app_no_scheduled_restart_by_default(webapp_no_auth):
+    """Test that no schedule is created unless refresh_schedule is set."""
+    template = Template.from_stack(webapp_no_auth)
+    template.resource_count_is("AWS::Scheduler::Schedule", 0)
+
+
+def test_web_app_scheduled_restart_creates_schedule(
+    cdk_app, deployment_config, app_config
+):
+    """Test that refresh_schedule creates a Scheduler schedule that forces a
+    new ECS deployment, scoped to this service."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        refresh_schedule=RefreshSchedule(cron={"hour": "6", "minute": "0"}),
+    )
+    template = Template.from_stack(stack)
+
+    template.resource_count_is("AWS::Scheduler::Schedule", 1)
+    template.has_resource_properties(
+        "AWS::Scheduler::Schedule",
+        {"ScheduleExpression": "cron(0 6 * * ? *)"},
+    )
+
+    # Schedule role is scoped to ecs:UpdateService
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {"Action": "ecs:UpdateService", "Effect": "Allow"}
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_web_app_scheduled_restart_hardens_healthy_percent(
+    cdk_app, deployment_config, app_config
+):
+    """Test that enabling a restart raises the healthy floor to 100% so a
+    single-task service stays available while it is rolled."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        refresh_schedule=RefreshSchedule(rate=Duration.hours(6)),
+    )
+    template = Template.from_stack(stack)
+
+    template.has_resource_properties(
+        "AWS::ECS::Service",
+        {
+            "DeploymentConfiguration": Match.object_like(
+                {"MinimumHealthyPercent": 100, "MaximumPercent": 200}
+            )
+        },
+    )
