@@ -195,7 +195,6 @@ class WebApp(BaseWebStack):
         self._cross_account_env = {"CROSS_ACCOUNT_ROLE_ARN": role_arn}
         logger.info(f"Cross-account access enabled: {role_arn}")
 
-
     def _setup_scheduled_restart(self, refresh: RefreshSchedule) -> None:
         """Force a new ECS deployment on a schedule.
 
@@ -235,7 +234,6 @@ class WebApp(BaseWebStack):
             ),
         )
         logger.info("Scheduled restart enabled for %s", self.app_name)
-
 
     def _setup_ecs_resources(
         self, docker_context_path: str, dockerfile_path: str
