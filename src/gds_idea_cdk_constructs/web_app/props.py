@@ -37,6 +37,15 @@ class WebAppContainerProperties:
     """Maximum healthy percentage.
     Set to 200 to let ECS start a replacement task before draining the old one"""
 
+    def __post_init__(self) -> None:
+        if self.max_healthy_percent <= self.min_healthy_percent:
+            raise ValueError(
+                "max_healthy_percent must be greater than min_healthy_percent "
+                "so ECS can start a replacement task before draining the old one "
+                f"(got max_healthy_percent={self.max_healthy_percent}, "
+                f"min_healthy_percent={self.min_healthy_percent})."
+            )
+
 
 @dataclass
 class RefreshSchedule:

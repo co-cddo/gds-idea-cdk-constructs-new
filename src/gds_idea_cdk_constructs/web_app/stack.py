@@ -286,6 +286,14 @@ class WebApp(BaseWebStack):
         if self._restart_enabled:
             min_healthy_percent = max(min_healthy_percent, 100)
         max_healthy_percent = self.container_props.max_healthy_percent
+        if max_healthy_percent <= min_healthy_percent:
+            raise ValueError(
+                "A scheduled restart raises the effective min_healthy_percent to "
+                f"{min_healthy_percent}%, but max_healthy_percent is "
+                f"{max_healthy_percent}%. Raise max_healthy_percent above "
+                f"{min_healthy_percent} so ECS can roll the service without "
+                "downtime, or remove refresh_schedule."
+            )
 
         # Look up the cluster
         self.cluster = ecs.Cluster.from_cluster_attributes(
