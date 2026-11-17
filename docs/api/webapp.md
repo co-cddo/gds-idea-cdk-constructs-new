@@ -21,6 +21,8 @@ The `WebApp` class is the main CDK stack for deploying containerized web applica
       heading_level: 3
       members:
         - __init__
+        - grant_force_deploy
+        - force_deploy_environment
 
 ## Usage Examples
 
@@ -141,6 +143,36 @@ WebApp(
 zero-downtime. The deployment circuit breaker rolls back automatically if the new task fails to become healthy.
 
 See [Container Properties](props.md#refreshschedule) for the full `RefreshSchedule` API.
+
+### Event-Driven Restart
+
+Instead of (or alongside) a fixed schedule, you can restart the app upon successful completion of an action (for example when a data-processing Lambda finishes writing to S3). 
+Grant the Lambda permission to roll the service and pass it the cluster/service names; the Lambda then calls `ecs:UpdateService` with `forceNewDeployment=true` on success.
+
+```python
+web_app = WebApp(app, deployment_config=dep_config, app_config=app_config)
+
+# `data_lambda` lives in another stack but the same account
+web_app.grant_force_deploy(data_lambda)
+for name, value in web_app.force_deploy_environment().items():
+    data_lambda.add_environment(name, value)
+```
+
+In the Lambda, after a successful write:
+
+```python
+import os
+import boto3
+
+ecs = boto3.client("ecs")
+ecs.update_service(
+    cluster=os.environ["ECS_CLUSTER_NAME"],
+    service=os.environ["ECS_SERVICE_NAME"],
+    forceNewDeployment=True,
+)
+```
+The restart is the same zero-downtime rolling deployment described under
+[Scheduled Data Refresh](props.md#scheduled-data-refresh).
 
 ### Debugging with WAF Disabled
 
