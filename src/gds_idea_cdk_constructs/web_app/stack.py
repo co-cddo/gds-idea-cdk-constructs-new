@@ -235,6 +235,41 @@ class WebApp(BaseWebStack):
         )
         logger.info("Scheduled restart enabled for %s", self.app_name)
 
+    def grant_force_deploy(self, grantee: iam.IGrantable) -> None:
+        """Allow ``grantee`` to force a new deployment of this app's ECS service.
+
+        Lets an external entity (typically a data-processing Lambda) restart the
+        the app by calling ``ecs:UpdateService`` with ``forceNewDeployment=True``
+        (generally done after successful completion of the lambda's job).
+
+        Pair this with `force_deploy_environment` to tell the grantee which cluster
+        and service to target.
+
+        Args:
+            grantee: The principal (e.g. a Lambda function) to grant permission to.
+        """
+        grantee.grant_principal.add_to_principal_policy(
+            iam.PolicyStatement(
+                actions=["ecs:UpdateService"],
+                resources=[self.fargate_service.service_arn],
+            )
+        )
+
+    def force_deploy_environment(self) -> dict[str, str]:
+        """Environment variables a grantee needs to force a new deployment.
+
+        Inject these into any principal granted via the function `grant_force_deploy`
+        so it can call ``ecs:UpdateService`` against this app's cluster and
+        service (e.g. with boto3 ``ecs.update_service(forceNewDeployment=True)``).
+
+        Returns:
+            Mapping of environment variable name to value.
+        """
+        return {
+            "ECS_CLUSTER_NAME": self.cluster.cluster_name,
+            "ECS_SERVICE_NAME": self.fargate_service.service_name,
+        }
+
     def _setup_ecs_resources(
         self, docker_context_path: str, dockerfile_path: str
     ) -> None:
