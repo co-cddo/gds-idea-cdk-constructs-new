@@ -10,6 +10,7 @@ from aws_cdk import (
     Stack,
     aws_cloudwatch as cloudwatch,
     aws_iam as iam,
+    aws_lambda as _lambda,
 )
 from aws_cdk.assertions import Match, Template
 
@@ -895,3 +896,51 @@ def test_web_app_scheduled_restart_hardens_healthy_percent(
             )
         },
     )
+
+
+def test_grant_force_deploy_adds_update_service_permission(
+    cdk_app, deployment_config, app_config
+):
+    """Test that grant_force_deploy lets a grantee call ecs:UpdateService."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+    )
+    consumer = Stack(cdk_app, "ConsumerStack", env=deployment_config.cdk_env)
+    fn = _lambda.Function(
+        consumer,
+        "DataLambda",
+        runtime=_lambda.Runtime.PYTHON_3_12,
+        handler="index.handler",
+        code=_lambda.Code.from_inline("def handler(event, context): pass"),
+    )
+
+    stack.grant_force_deploy(fn)
+
+    template = Template.from_stack(consumer)
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {"Action": "ecs:UpdateService", "Effect": "Allow"}
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_force_deploy_environment_exposes_cluster_and_service(webapp_no_auth):
+    """Test that force_deploy_environment exposes the cluster and service names."""
+    env = webapp_no_auth.force_deploy_environment()
+    assert set(env) == {"ECS_CLUSTER_NAME", "ECS_SERVICE_NAME"}
+    assert env["ECS_CLUSTER_NAME"]
+    assert env["ECS_SERVICE_NAME"]
