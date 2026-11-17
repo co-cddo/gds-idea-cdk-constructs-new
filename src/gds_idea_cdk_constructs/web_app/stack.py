@@ -9,6 +9,8 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
     aws_logs as logs,
+    aws_scheduler as scheduler,
+    aws_scheduler_targets as scheduler_targets,
 )
 from aws_cdk.aws_ecr_assets import Platform
 from constructs import Construct
@@ -17,7 +19,7 @@ from .._base_stack import BaseWebStack
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from ._auth_strategies import AuthType
 from ._dashboard import AppUsageDashboard, DashboardProperties
-from .props import WebAppContainerProperties
+from .props import RefreshSchedule, WebAppContainerProperties
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class WebApp(BaseWebStack):
         cross_account_access: bool = False,
         enable_usage_dashboard: bool = True,
         dashboard_properties: DashboardProperties | None = None,
+        refresh_schedule: RefreshSchedule | None = None,
     ) -> None:
         """Initialize a WebApp stack with containerized application infrastructure.
 
@@ -85,6 +88,9 @@ class WebApp(BaseWebStack):
                 name, per-user email disclosure, log filter pattern and extra
                 widgets. See :class:`DashboardProperties`. Ignored when
                 ``enable_usage_dashboard`` is ``False``.
+            refresh_schedule: Optional schedule that periodiclly forces a new deployment
+                of the ECS task, restarting the container.
+                Defaults to None (no automatic restarts), see :class:`RefreshSchedule`
 
         Example:
             Basic usage with Cognito authentication::
@@ -113,6 +119,9 @@ class WebApp(BaseWebStack):
         self.container_props = (
             container_props or WebAppContainerProperties()
         )  # Load the default values
+
+        # A restart schedule is enabled if a RefreshSchedule is provided
+        self._restart_enabled = refresh_schedule is not None
 
         # Configure task role based on whether a custom role is provided
         if task_role:
@@ -143,6 +152,12 @@ class WebApp(BaseWebStack):
         self._setup_ecs_resources(docker_context_path, dockerfile_path)
         self._setup_load_balancer()
         self._setup_dns_record()
+
+        if refresh_schedule is not None:
+            self._setup_scheduled_restart(refresh_schedule)
+            logger.info(
+                f"Automatic restart schedule enabled: {refresh_schedule} for {self.app_name}"  # noqa: E501
+            )
 
         if disable_waf:
             logging.warning(
@@ -180,6 +195,48 @@ class WebApp(BaseWebStack):
         self._cross_account_env = {"CROSS_ACCOUNT_ROLE_ARN": role_arn}
         logger.info(f"Cross-account access enabled: {role_arn}")
 
+
+    def _setup_scheduled_restart(self, refresh: RefreshSchedule) -> None:
+        """Force a new ECS deployment on a schedule.
+
+        Uses an EventBridge Scheduler schedule whose universal target calls
+        ``ecs:UpdateService`` with ``forceNewDeployment=True``. No Lambda is
+        involved. The schedule's role is scoped to this service only.
+
+        Args:
+            refresh: The restart schedule (exactly one of rate or cron).
+        """
+        expression = (
+            scheduler.ScheduleExpression.rate(refresh.rate)
+            if refresh.rate
+            else scheduler.ScheduleExpression.cron(**refresh.cron)
+        )
+
+        scheduler.Schedule(
+            self,
+            "ScheduledRestart",
+            schedule=expression,
+            target=scheduler_targets.Universal(
+                service="ecs",
+                action="updateService",
+                input=scheduler.ScheduleTargetInput.from_object(
+                    {
+                        "Cluster": self.cluster.cluster_arn,
+                        "Service": self.fargate_service.service_name,
+                        "ForceNewDeployment": True,
+                    }
+                ),
+                policy_statements=[
+                    iam.PolicyStatement(
+                        actions=["ecs:UpdateService"],
+                        resources=[self.fargate_service.service_arn],
+                    )
+                ],
+            ),
+        )
+        logger.info("Scheduled restart enabled for %s", self.app_name)
+
+
     def _setup_ecs_resources(
         self, docker_context_path: str, dockerfile_path: str
     ) -> None:
@@ -191,6 +248,10 @@ class WebApp(BaseWebStack):
         environment = self.container_props.environment_variables
         health_check_grace_period = self.container_props.health_check_grace_period
         min_healthy_percent = self.container_props.min_healthy_percent
+        # If restart schedule is enabled, then current task must remain healthy until
+        # new task is running, so min_healthy_percent must be at least 100.
+        if self._restart_enabled:
+            min_healthy_percent = max(min_healthy_percent, 100)
         max_healthy_percent = self.container_props.max_healthy_percent
 
         # Look up the cluster
