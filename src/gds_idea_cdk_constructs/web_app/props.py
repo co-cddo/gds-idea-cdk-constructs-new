@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from aws_cdk import Duration
+
 
 @dataclass
 class WebAppContainerProperties:
@@ -34,3 +36,29 @@ class WebAppContainerProperties:
     max_healthy_percent: int = 200
     """Maximum healthy percentage.
     Set to 200 to let ECS start a replacement task before draining the old one"""
+
+
+@dataclass
+class RefreshSchedule:
+    """Schedule for automatically restarting a WebApp's ECS service.
+
+    Forcing a new deployment restarts the container.
+    Provide exactly one of ``rate`` or ``cron``.
+
+    Args:
+        rate: Fixed interval between restarts, e.g. ``Duration.hours(1)``.
+        cron: Cron fields forwarded to ``ScheduleExpression.cron``, e.g.
+            ``{"hour": "6", "minute": "0"}`` for a daily 06:00 UTC restart.
+
+    Raises:
+        ValueError: If neither or both of ``rate`` and ``cron`` are set.
+    """
+
+    rate: Duration | None = None
+    cron: dict[str, str] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        if bool(self.rate) == bool(self.cron):
+            raise ValueError(
+                "RefreshSchedule requires exactly one of 'rate' or 'cron'."
+            )
