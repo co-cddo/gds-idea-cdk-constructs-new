@@ -169,7 +169,8 @@ class RefreshSchedule:
 
     @classmethod
     def every(cls, interval: Duration) -> "RefreshSchedule":
-        """Restart on a fixed interval, e.g. ``RefreshSchedule.every(Duration.hours(6))``."""
+        """Restart on a fixed interval
+        e.g. ``RefreshSchedule.every(Duration.hours(6))``."""
         return cls(rate=interval)
 
     @classmethod
