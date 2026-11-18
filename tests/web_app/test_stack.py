@@ -5,6 +5,7 @@ import json
 import pytest
 from aws_cdk import (
     App,
+    Duration,
     Environment as CdkEnvironment,
     Stack,
     aws_cloudwatch as cloudwatch,
@@ -15,7 +16,10 @@ from aws_cdk.assertions import Match, Template
 from gds_idea_cdk_constructs.config import DeploymentConfig, DeploymentEnvironment
 from gds_idea_cdk_constructs.web_app._auth_strategies import AuthType
 from gds_idea_cdk_constructs.web_app._dashboard import DashboardProperties
-from gds_idea_cdk_constructs.web_app.props import WebAppContainerProperties
+from gds_idea_cdk_constructs.web_app.props import (
+    RefreshSchedule,
+    WebAppContainerProperties,
+)
 from gds_idea_cdk_constructs.web_app.stack import WebApp
 from tests.conftest import TEST_CONFIG
 
@@ -391,6 +395,16 @@ def test_web_app_stack_custom_container_props(cdk_app, deployment_config, app_co
     template.has_resource_properties(
         "AWS::ElasticLoadBalancingV2::TargetGroup",
         {"HealthCheckPath": "/custom/health"},
+    )
+
+
+def test_web_app_stack_default_max_healthy_percent(webapp_no_auth):
+    """Test that the service allows a second task during deployments by default."""
+    template = Template.from_stack(webapp_no_auth)
+
+    template.has_resource_properties(
+        "AWS::ECS::Service",
+        {"DeploymentConfiguration": Match.object_like({"MaximumPercent": 200})},
     )
 
 
@@ -810,3 +824,126 @@ def test_default_dashboard_hides_user_emails(cdk_app, deployment_config, app_con
     assert "last_login by email" not in body
     # No per-user request-count query
     assert "count() as requests by email" not in body
+
+
+def test_web_app_no_scheduled_restart_by_default(webapp_no_auth):
+    """Test that no schedule is created unless refresh_schedule is set."""
+    template = Template.from_stack(webapp_no_auth)
+    template.resource_count_is("AWS::Scheduler::Schedule", 0)
+
+
+def test_web_app_scheduled_restart_creates_schedule(
+    cdk_app, deployment_config, app_config
+):
+    """Test that a daily schedule forces a new deployment, scoped to this service."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        refresh_schedule=RefreshSchedule.daily_at(6),
+    )
+    template = Template.from_stack(stack)
+
+    template.resource_count_is("AWS::Scheduler::Schedule", 1)
+    template.has_resource_properties(
+        "AWS::Scheduler::Schedule",
+        {
+            "ScheduleExpression": "cron(0 6 * * ? *)",
+            "ScheduleExpressionTimezone": "Europe/London",
+        },
+    )
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {"Action": "ecs:UpdateService", "Effect": "Allow"}
+                        )
+                    ]
+                )
+            }
+        },
+    )
+
+
+def test_web_app_scheduled_restart_sets_retry_policy(
+    cdk_app, deployment_config, app_config
+):
+    """Test that the schedule target carries the configured retry policy."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        refresh_schedule=RefreshSchedule.every(Duration.hours(6)),
+    )
+    template = Template.from_stack(stack)
+    template.has_resource_properties(
+        "AWS::Scheduler::Schedule",
+        {
+            "Target": Match.object_like(
+                {
+                    "RetryPolicy": {
+                        "MaximumRetryAttempts": 2,
+                        "MaximumEventAgeInSeconds": 3600,
+                    }
+                }
+            )
+        },
+    )
+
+
+def test_web_app_scheduled_restart_rejects_insufficient_max_percent(
+    cdk_app, deployment_config, app_config
+):
+    """Test that a restart which leaves no room for a replacement is rejected.
+
+    desired_count=2 with min=50/max=120 is valid at rest, but the restart bump to
+    an effective 100% floor leaves no room for a replacement task.
+    """
+    with pytest.raises(ValueError, match=r"no room for a replacement"):
+        WebApp(
+            cdk_app,
+            deployment_config,
+            app_config,
+            authentication=AuthType.NONE,
+            docker_context_path="tests/fixtures",
+            dockerfile_path="Dockerfile",
+            container_props=WebAppContainerProperties(
+                desired_count=2, min_healthy_percent=50, max_healthy_percent=120
+            ),
+            refresh_schedule=RefreshSchedule.every(Duration.hours(6)),
+        )
+
+
+def test_web_app_scheduled_restart_hardens_healthy_percent(
+    cdk_app, deployment_config, app_config
+):
+    """Test that enabling a restart raises the healthy floor to 100% so a
+    single-task service stays available while it is rolled."""
+    stack = WebApp(
+        cdk_app,
+        deployment_config,
+        app_config,
+        authentication=AuthType.NONE,
+        docker_context_path="tests/fixtures",
+        dockerfile_path="Dockerfile",
+        refresh_schedule=RefreshSchedule(rate=Duration.hours(6)),
+    )
+    template = Template.from_stack(stack)
+
+    template.has_resource_properties(
+        "AWS::ECS::Service",
+        {
+            "DeploymentConfiguration": Match.object_like(
+                {"MinimumHealthyPercent": 100, "MaximumPercent": 200}
+            )
+        },
+    )

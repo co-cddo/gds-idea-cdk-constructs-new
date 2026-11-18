@@ -21,6 +21,8 @@ The `WebApp` class is the main CDK stack for deploying containerized web applica
       heading_level: 3
       members:
         - __init__
+        - grant_force_deploy
+        - force_deploy_environment
 
 ## Usage Examples
 
@@ -115,6 +117,33 @@ WebApp(
 )
 ```
 
+### Scheduled Data Refresh
+
+If your application reads data at startup (e.g. from S3 or Athena), it keeps serving
+that snapshot until the container restarts. Pass a `RefreshSchedule` to restart the
+ECS service on a schedule so it reloads fresh data automatically:
+
+```python
+from aws_cdk import Duration
+from gds_idea_cdk_constructs.web_app import RefreshSchedule, WebApp
+
+WebApp(
+    app,
+    deployment_config=deployment_config,
+    app_config=app_config,
+    authentication=AuthType.INTERNAL_ACCESS,
+    docker_context_path=".",
+    dockerfile_path="Dockerfile",
+    refresh_schedule=RefreshSchedule(rate=Duration.hours(6)),  # restart every 6 hours
+)
+```
+
+**How it works:** an EventBridge Scheduler schedule calls `ecs:UpdateService` with
+`forceNewDeployment=true` on the service. ECS starts a replacement task, waits for it to pass the ALB health check, then drains the old task — so the restart is
+zero-downtime. The deployment circuit breaker rolls back automatically if the new task fails to become healthy.
+
+See [Container Properties](props.md#refreshschedule) for the full `RefreshSchedule` API.
+
 ### Debugging with WAF Disabled
 
 !!! warning "Security Warning"
@@ -204,6 +233,11 @@ When you create a `WebApp`, the following AWS resources are automatically create
 
 - **CloudWatch Log Group** - Container logs
 - **S3 Access Logs** - ALB access logs
+
+### Scheduled Restart (optional)
+
+- **EventBridge Scheduler Schedule** - Created only when `refresh_schedule` is set;
+  forces a new ECS deployment on the given schedule so the app reloads its data.
 
 ## CloudFormation Outputs
 

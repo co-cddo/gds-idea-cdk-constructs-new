@@ -19,6 +19,13 @@ The `WebAppContainerProperties` dataclass allows you to customize the ECS Fargat
       show_root_heading: true
       heading_level: 3
 
+## RefreshSchedule
+
+::: gds_idea_cdk_constructs.web_app.props.RefreshSchedule
+    options:
+      show_root_heading: true
+      heading_level: 3
+
 ## Usage Examples
 
 ### Default Configuration
@@ -158,6 +165,47 @@ Health checks are used by:
 - **ECS Service** - To restart unhealthy tasks
 
 Your application must respond with HTTP 200 at this endpoint.
+
+### Zero-Downtime Deployments
+
+`max_healthy_percent` (default `200`) controls how many tasks ECS may run while
+rolling a new deployment. At `200` with a single task, ECS starts the replacement
+task and waits for it to pass the ALB health check **before** draining the old one,
+so the service stays available throughout the roll.
+
+```python
+props = WebAppContainerProperties(
+    desired_count=1,
+    min_healthy_percent=100,
+    max_healthy_percent=200,
+)
+```
+
+`max_healthy_percent` must be greater than `min_healthy_percent`, otherwise ECS has
+no room to start a replacement and the deployment cannot make progress; the construct raises a `ValueError` for this configuration.
+
+### Scheduled Data Refresh
+
+Apps that load data once at startup (for example from S3 or Athena) will serve that
+snapshot until the container restarts. RefreshSchedule periodically forces a new ECS deployment so the container restarts and reloads its data, with no manual intervention.
+
+```python
+from aws_cdk import Duration
+from gds_idea_cdk_constructs.web_app import RefreshSchedule, WebApp
+
+WebApp(
+    app,
+    deployment_config=deployment_config,
+    app_config=app_config,
+    refresh_schedule=RefreshSchedule(cron={"hour": "6", "minute": "0"}),  # daily 06:00 UTC
+    # or a fixed interval:
+    # refresh_schedule=RefreshSchedule(rate=Duration.hours(1)),
+)
+```
+
+Provide exactly one of `rate` or `cron`. When a schedule is set, the service's
+effective `min_healthy_percent` is raised to 100 so the scheduled restart rolls the
+task with no downtime.
 
 ### Complete Example
 
