@@ -1,9 +1,11 @@
 from ..web_app._auth_strategies import AuthType
+from ._dashboard import StaticSiteDashboardProperties
 from .props import StaticSiteProperties
 from .stack import StaticSite
 
 __all__ = [
     "StaticSite",
+    "StaticSiteDashboardProperties",
     "StaticSiteProperties",
     "AuthType",
 ]

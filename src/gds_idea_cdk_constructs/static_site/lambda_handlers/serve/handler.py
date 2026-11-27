@@ -94,6 +94,9 @@ def handler(event, context):
         if not _authoriser.is_authorised(user):
             return _response(403, "Forbidden", "text/plain")
 
+        # Parsed by the CloudWatch observability dashboard's user widgets.
+        print(f"User authenticated email={user.email}")
+
     elif path == "/.auth/user":
         return _response(404, "No authentication configured", "text/plain")
 

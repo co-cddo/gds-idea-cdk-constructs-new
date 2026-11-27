@@ -313,6 +313,46 @@ Configurable via `CACHE_MAX_SIZE` environment variable (default: 128 files).
 
 For full rationale, see [ADR-001: Use LRU cache for S3 reads](../adr/001-lru-cache-for-s3-reads.md).
 
+## Observability Dashboard
+
+By default, `StaticSite` creates a CloudWatch dashboard named `{app_name}-{stage}-observability` (for example `my-docs-prod-observability`). Widgets, two per row:
+
+| Widget | Source | Shown when |
+|--------|--------|------------|
+| Successful sign-ins, and over time | ALB `ELBAuthSuccess` | Authentication is enabled |
+| Active users, Most active users | Serve Lambda logs (`User authenticated email=...`) | Authentication is enabled |
+| Requests, Target response time (avg/p95/p99), HTTP errors | ALB | Always |
+| WAF requests (allowed/blocked) | `AWS/WAFV2` for the Web ACL in `waf_arn` | `disable_waf=False` |
+| Serve Lambda invocations/errors/throttles, duration | `AWS/Lambda` | Always |
+| Build Lambda invocations/errors, duration | `AWS/Lambda` | Always |
+
+User emails are hidden by default: Active users shows a daily distinct-user count, and Most active users shows a placeholder. Opt in with `show_user_emails=True`.
+
+```python
+from gds_idea_cdk_constructs.static_site import StaticSiteDashboardProperties
+
+StaticSite(
+    app,
+    DeploymentConfig(cdk_env),
+    AppConfig(app_name="my-docs", framework="static"),
+    static_site_props=StaticSiteProperties(build_command="..."),
+    dashboard_properties=StaticSiteDashboardProperties(
+        show_user_emails=True,
+        extra_widgets=[my_widget],
+    ),
+)
+```
+
+Pass `enable_dashboard=False` to skip the dashboard. The deploy role needs `cloudwatch:PutDashboard` and `cloudwatch:DeleteDashboards`.
+
+!!! note
+    The active-user widgets read a log line written by the serve Lambda, so they stay empty until the site has been redeployed with this version and has received authenticated requests.
+
+::: gds_idea_cdk_constructs.static_site._dashboard.StaticSiteDashboardProperties
+    options:
+      show_root_heading: true
+      heading_level: 3
+
 ## Created Resources
 
 | Resource | Purpose |
@@ -327,6 +367,7 @@ For full rationale, see [ADR-001: Use LRU cache for S3 reads](../adr/001-lru-cac
 | Route53 Hosted Zone | Subdomain DNS |
 | ACM Certificate | TLS certificate with DNS validation |
 | WAF Association | Security (enabled by default) |
+| CloudWatch Dashboard | Traffic, errors, usage, Lambda and WAF metrics (enabled by default) |
 
 ## CloudFormation Outputs
 
