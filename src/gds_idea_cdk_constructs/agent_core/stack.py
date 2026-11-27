@@ -359,7 +359,8 @@ class AgentCore(Stack):
         """Grant permissions to invoke this AgentCore runtime.
 
         Grants the grantee ``bedrock-agentcore:InvokeAgentRuntime`` on the
-        runtime ARN.
+        runtime ARN and on its endpoints. AWS checks both, and a runtime's
+        ``DEFAULT`` endpoint is what callers invoke.
 
         Args:
             grantee: The IAM principal to grant permissions to (e.g. a
@@ -377,7 +378,7 @@ class AgentCore(Stack):
             iam.PolicyStatement(
                 sid="AgentCoreInvoke",
                 actions=["bedrock-agentcore:InvokeAgentRuntime"],
-                resources=[self.runtime_arn],
+                resources=[self.runtime_arn, f"{self.runtime_arn}/runtime-endpoint/*"],
             )
         )
 

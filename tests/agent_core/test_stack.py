@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from aws_cdk import App, Environment as CdkEnvironment, RemovalPolicy
+from aws_cdk import App, Environment as CdkEnvironment, RemovalPolicy, aws_iam as iam
 from aws_cdk.assertions import Match, Template
 
 from gds_idea_cdk_constructs.agent_core.props import (
@@ -1027,4 +1027,41 @@ def test_cedar_permit_lists_every_target():
         'AgentCore::Action::"contracts"],\n'
         f'  resource == AgentCore::Gateway::"{gateway}"\n'
         ");"
+    )
+
+
+def test_grant_invoke_covers_the_runtime_and_its_endpoints(builtin_default):
+    """AWS checks InvokeAgentRuntime against the runtime and its endpoint."""
+    caller = iam.Role(
+        builtin_default,
+        "Caller",
+        assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+    )
+
+    builtin_default.grant_invoke(caller)
+
+    Template.from_stack(builtin_default).has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Sid": "AgentCoreInvoke",
+                                "Action": "bedrock-agentcore:InvokeAgentRuntime",
+                                "Resource": [
+                                    Match.any_value(),
+                                    {
+                                        "Fn::Join": Match.array_with(
+                                            [Match.array_with(["/runtime-endpoint/*"])]
+                                        )
+                                    },
+                                ],
+                            }
+                        )
+                    ]
+                )
+            }
+        },
     )
