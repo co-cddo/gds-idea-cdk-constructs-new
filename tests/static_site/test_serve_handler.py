@@ -132,3 +132,42 @@ def test_cache_max_size_defaults_to_128(monkeypatch):
 
     assert module.CACHE_MAX_SIZE == 128
     sys.modules.pop(module_name, None)
+
+
+def _authenticated(handler_module, *, authorised: bool):
+    """Configure the handler module as an authenticated site."""
+    handler_module.COGNITO_AUTH_SECRET_NAME = "secret"
+    handler_module._lambda_auth = MagicMock()
+    handler_module._lambda_auth.get_auth_user.return_value.email = "a@example.gov.uk"
+    handler_module._authoriser = MagicMock()
+    handler_module._authoriser.is_authorised.return_value = authorised
+    handler_module.s3.get_object.return_value = _s3_object(b"<html></html>")
+
+
+def test_handler_logs_authenticated_user_email(handler_module, capsys):
+    """Test that an authorised request logs the line the dashboard queries."""
+    _authenticated(handler_module, authorised=True)
+
+    response = handler_module.handler({"path": "/"}, None)
+
+    assert response["statusCode"] == 200
+    assert "User authenticated email=a@example.gov.uk" in capsys.readouterr().out
+
+
+def test_handler_does_not_log_user_when_forbidden(handler_module, capsys):
+    """Test that a forbidden request is not counted as an active user."""
+    _authenticated(handler_module, authorised=False)
+
+    response = handler_module.handler({"path": "/"}, None)
+
+    assert response["statusCode"] == 403
+    assert "User authenticated" not in capsys.readouterr().out
+
+
+def test_handler_does_not_log_user_when_unauthenticated_site(handler_module, capsys):
+    """Test that public sites emit no user log line."""
+    handler_module.s3.get_object.return_value = _s3_object(b"<html></html>")
+
+    handler_module.handler({"path": "/"}, None)
+
+    assert "User authenticated" not in capsys.readouterr().out

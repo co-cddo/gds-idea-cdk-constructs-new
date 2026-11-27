@@ -30,6 +30,11 @@ from .._base_stack import BaseWebStack
 from .._lambda_targets import scope_elb_invoke_permission
 from ..config import AppConfig, DeploymentConfig, DeploymentEnvironment
 from ..web_app._auth_strategies import AuthType
+from ._dashboard import (
+    SiteObservabilityDashboard,
+    StaticSiteDashboardProperties,
+    waf_web_acl_name,
+)
 from .props import StaticSiteProperties
 
 logger = logging.getLogger(__name__)
@@ -88,6 +93,7 @@ class StaticSite(BaseWebStack):
     - ALB with HTTPS and optional Cognito authentication
     - EventBridge schedule for periodic rebuilds (optional)
     - Custom Resource to auto-invoke build on deploy
+    - CloudWatch observability dashboard (optional, on by default)
     """
 
     def __init__(
@@ -101,6 +107,8 @@ class StaticSite(BaseWebStack):
         static_site_props: StaticSiteProperties | None = None,
         task_role: iam.Role | None = None,
         disable_waf: bool = False,
+        enable_dashboard: bool = True,
+        dashboard_properties: StaticSiteDashboardProperties | None = None,
     ) -> None:
         """Initialize a StaticSite stack.
 
@@ -120,6 +128,13 @@ class StaticSite(BaseWebStack):
             task_role: Custom IAM role for the Lambda functions. If None, a
                 role will be created with appropriate permissions.
             disable_waf: Disable WAF association with the ALB. Defaults to False.
+            enable_dashboard: Create a CloudWatch observability dashboard named
+                ``{app_name}-{stage}-observability`` covering ALB traffic and
+                errors, sign-ins, active users, the serve and build Lambdas and
+                WAF. Defaults to True.
+            dashboard_properties: Optional overrides for the dashboard (name,
+                whether to show user emails, extra widgets). Ignored when
+                ``enable_dashboard`` is False.
 
         Example:
             Basic usage with internal access authentication::
@@ -197,7 +212,39 @@ class StaticSite(BaseWebStack):
         else:
             self._associate_waf()
 
+        self.dashboard: SiteObservabilityDashboard | None = None
+        if enable_dashboard:
+            self._setup_dashboard(
+                authentication=authentication,
+                properties=dashboard_properties or StaticSiteDashboardProperties(),
+                waf_enabled=not disable_waf,
+            )
+
         self._create_outputs()
+
+    def _setup_dashboard(
+        self,
+        authentication: AuthType,
+        properties: StaticSiteDashboardProperties,
+        waf_enabled: bool,
+    ) -> None:
+        """Create the CloudWatch observability dashboard."""
+        self.dashboard = SiteObservabilityDashboard(
+            self,
+            "ObservabilityDashboard",
+            app_name=self.app_name,
+            stage=self.deployment_config.environment.name.lower(),
+            load_balancer=self.load_balancer,
+            serve_lambda=self.serve_lambda,
+            build_lambda=self.build_lambda,
+            authenticated=authentication != AuthType.NONE,
+            web_acl_name=(
+                waf_web_acl_name(self.deployment_config.waf_arn)
+                if waf_enabled
+                else None
+            ),
+            properties=properties,
+        )
 
     def _setup_content_bucket(self) -> None:
         """Create S3 bucket for built static site content."""

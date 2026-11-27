@@ -1,5 +1,7 @@
 """Unit tests for StaticSite stack."""
 
+import json
+
 import pytest
 from aws_cdk import App, Duration, Environment as CdkEnvironment, aws_events as events
 from aws_cdk.assertions import Match, Template
@@ -8,6 +10,7 @@ from gds_idea_cdk_constructs.config import DeploymentConfig
 from gds_idea_cdk_constructs.static_site import (
     AuthType,
     StaticSite,
+    StaticSiteDashboardProperties,
     StaticSiteProperties,
 )
 from tests.conftest import TEST_CONFIG
@@ -295,6 +298,117 @@ def test_static_site_disable_waf_prevents_association(
 
     template = Template.from_stack(stack)
     template.resource_count_is("AWS::WAFv2::WebACLAssociation", 0)
+
+
+# --- Dashboard tests ---
+
+
+def _dashboard_body(stack) -> str:
+    return json.dumps(Template.from_stack(stack).to_json(), ensure_ascii=False)
+
+
+def _static_site(cdk_app, deployment_config, app_config, static_site_props, **kwargs):
+    return StaticSite(
+        cdk_app,
+        deployment_config,
+        app_config,
+        docker_context_path="tests/fixtures/static_site",
+        dockerfile_path="Dockerfile",
+        static_site_props=static_site_props,
+        **kwargs,
+    )
+
+
+def test_dashboard_enabled_by_default(static_site_cognito):
+    """Test that a dashboard is created by default."""
+    template = Template.from_stack(static_site_cognito)
+
+    template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
+    template.has_resource_properties(
+        "AWS::CloudWatch::Dashboard",
+        {"DashboardName": "testapp-testing-observability"},
+    )
+    assert static_site_cognito.dashboard is not None
+
+
+def test_dashboard_can_be_disabled(
+    cdk_app, deployment_config, app_config, static_site_props
+):
+    """Test that enable_dashboard=False creates no dashboard."""
+    stack = _static_site(
+        cdk_app,
+        deployment_config,
+        app_config,
+        static_site_props,
+        authentication=AuthType.NONE,
+        enable_dashboard=False,
+    )
+
+    Template.from_stack(stack).resource_count_is("AWS::CloudWatch::Dashboard", 0)
+    assert stack.dashboard is None
+
+
+def test_dashboard_properties_flow_through(
+    cdk_app, deployment_config, app_config, static_site_props
+):
+    """Test that dashboard_properties reach the dashboard."""
+    stack = _static_site(
+        cdk_app,
+        deployment_config,
+        app_config,
+        static_site_props,
+        authentication=AuthType.COGNITO,
+        dashboard_properties=StaticSiteDashboardProperties(
+            dashboard_name="custom-name", show_user_emails=True
+        ),
+    )
+
+    template = Template.from_stack(stack)
+    template.has_resource_properties(
+        "AWS::CloudWatch::Dashboard", {"DashboardName": "custom-name"}
+    )
+    assert "last_access by email" in _dashboard_body(stack)
+
+
+def test_dashboard_uses_waf_acl_name_from_config(static_site_cognito):
+    """Test that the WAF widget targets the ACL named in the deployment config."""
+    body = _dashboard_body(static_site_cognito)
+
+    assert "AWS/WAFV2" in body
+    assert "test-waf" in body
+
+
+def test_dashboard_omits_waf_widget_when_waf_disabled(
+    cdk_app, deployment_config, app_config, static_site_props
+):
+    """Test that disable_waf=True drops the WAF widget."""
+    stack = _static_site(
+        cdk_app,
+        deployment_config,
+        app_config,
+        static_site_props,
+        authentication=AuthType.COGNITO,
+        disable_waf=True,
+    )
+
+    assert "AWS/WAFV2" not in _dashboard_body(stack)
+
+
+def test_dashboard_omits_user_widgets_without_auth(static_site_no_auth):
+    """Test that AuthType.NONE sites have no sign-in or user widgets."""
+    body = _dashboard_body(static_site_no_auth)
+
+    assert "Requests" in body
+    assert "ELBAuthSuccess" not in body
+    assert "Active users" not in body
+
+
+def test_dashboard_includes_user_widgets_with_auth(static_site_cognito):
+    """Test that authenticated sites chart sign-ins and active users."""
+    body = _dashboard_body(static_site_cognito)
+
+    assert "ELBAuthSuccess" in body
+    assert "Active users" in body
 
 
 # --- Build Lambda tests ---
